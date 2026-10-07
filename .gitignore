@@ -1,0 +1,11 @@
+# PlatformIO
+.pio/
+
+# Visual Studio Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Fichiers temporaires
+*.log
