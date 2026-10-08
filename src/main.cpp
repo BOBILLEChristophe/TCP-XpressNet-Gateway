@@ -2,18 +2,23 @@
    ============================================================
 
    TCP-XPRESSNET-GATEWAY
-   BASE FREERTOS V2
+   BASE FREERTOS V2 + NETWORK
 
    ESP32 / ESP32-S3 + SP3485 + LENZ LZV100
 
    ============================================================
 
-   Le moteur XpressNet est maintenant séparé dans :
+   Le moteur XpressNet est séparé dans :
 
        XpressNet.h
        XpressNet.cpp
 
-   main.cpp conserve pour le moment :
+   La partie réseau est séparée dans :
+
+       Network.h
+       Network.cpp
+
+   main.cpp conserve :
 
        - l'interface de test Serial
        - l'état de la locomotive de test
@@ -28,6 +33,7 @@
 
 #include "Config.h"
 #include "XpressNet.h"
+#include "TcpNetwork.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -254,8 +260,8 @@ void processSerialCommand(
 
     int functionNumber =
       line.substring(
-            1,
-            2)
+        1,
+        2)
         .toInt();
 
 
@@ -369,7 +375,7 @@ void processSerialCommand(
       "======================================");
 
     Serial.println(
-      " STATUS XPRESSNET FREERTOS");
+      " STATUS TCP-XPRESSNET-GATEWAY");
 
     Serial.println(
       "======================================");
@@ -393,6 +399,9 @@ void processSerialCommand(
     Serial.printf(
       "Fonctions        : 0x%02X\n",
       functionState);
+
+
+    printNetworkStatus();
 
 
     Serial.println(
@@ -451,8 +460,8 @@ void CommandTask(
        Cette tâche n'a aucune contrainte
        temporelle XpressNet.
 
-       Plus tard la partie TCP pourra utiliser
-       exactement la même interface XpressNet.
+       La partie TCP dispose maintenant
+       de sa propre tâche.
     */
 
     vTaskDelay(
@@ -481,7 +490,7 @@ void setup() {
     " TCP-XPRESSNET-GATEWAY");
 
   Serial.println(
-    " BASE FREERTOS V2");
+    " BASE FREERTOS V2 + NETWORK");
 
   Serial.println(
     "======================================");
@@ -494,6 +503,29 @@ void setup() {
   // ----------------------------------------------------------
 
   initXpressNet();
+
+  // SECURITE AU DEMARRAGE : deux POWER OFF transmis
+  // lors de deux interrogations XpressNet successives.
+  // Cette action est volontairement effectuee avant initNetwork().
+  {
+    uint8_t frame[MAX_XPRESSNET_BYTES];
+    const size_t length = buildPowerOffFrame(frame);
+
+    for (uint8_t i = 0; i < 2; ++i) {
+      if (queueXpressNetMessage(frame, length)) {
+        Serial.printf("Demarrage : POWER OFF %u/2 programme\n", i + 1);
+      } else {
+        Serial.println("ERREUR : POWER OFF initial non programme");
+      }
+    }
+  }
+
+
+  // ----------------------------------------------------------
+  // NETWORK
+  // ----------------------------------------------------------
+
+  initNetwork();
 
 
   // ----------------------------------------------------------
@@ -652,6 +684,10 @@ void loop() {
      CommandTask :
          priorité 1
          interface utilisateur
+
+     NetworkTask :
+         priorité 1
+         Wi-Fi + TCP
   */
 
   vTaskDelay(
