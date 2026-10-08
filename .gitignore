@@ -1,11 +1,12 @@
 # PlatformIO
 .pio/
-
 # Visual Studio Code
 .vscode/
-
 # macOS
 .DS_Store
-
+# Configuration Wi-Fi locale : ne jamais versionner
+include/Secrets.h
+Secrets.h
 # Fichiers temporaires
 *.log
+__MACOSX/

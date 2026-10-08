@@ -1,8 +1,8 @@
 #include "XpressNet.h"
+#include "driver/uart.h"  // types UART requis par Config.h
 #include "Config.h"
 
 #include "driver/gpio.h"
-#include "driver/uart.h"
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
 
@@ -42,58 +42,37 @@ static rmt_encoder_handle_t txEncoder = nullptr;
 
 
 // ============================================================
-// TAILLE MAXIMUM
+// MESSAGES PREPARES : POOL STATIQUE + FILE DE POINTEURS
 // ============================================================
 
 /*
-   16 octets :
+   Les symboles RMT sont prepares dans un tampon reserve AVANT
+   la reception du Call Byte.
 
-       16 * 11 = 176 bits
+   L'ancienne FIFO copiait la structure entiere (jusqu'a 368 octets)
+   dans XpressNetTask, apres 0x55.
 
-   2 bits par symbole RMT :
-
-       88 symboles maximum
-
-   On prend 90 pour laisser une petite marge.
+   Desormais, la FIFO ne transporte qu'un pointeur (4 octets sur ESP32).
+   Le pool est statique : pas de malloc/free, pas de fragmentation.
+   Chaque tampon est rendu au pool APRES la fin du RMT.
 */
 
 static constexpr size_t MAX_RMT_SYMBOLS = 90;
-
-
-// ============================================================
-// MESSAGE PREPARE POUR LA QUEUE
-// ============================================================
-
-/*
-   C'est LA différence importante avec
-   la première version FreeRTOS.
-
-   La queue ne contient plus :
-
-       longueur + octets XpressNet
-
-   mais directement :
-
-       nombre de symboles
-       symboles RMT déjà prêts
-
-   XpressNetTask n'a donc plus rien
-   à construire après le 0x55.
-*/
 
 struct PreparedXpressNetMessage {
   size_t symbolCount;
   rmt_symbol_word_t symbols[MAX_RMT_SYMBOLS];
 };
 
+static constexpr UBaseType_t TX_QUEUE_LENGTH = 16;
 
-// ============================================================
-// QUEUE
-// ============================================================
+static PreparedXpressNetMessage txMessagePool[TX_QUEUE_LENGTH];
 
+// Pointeurs vers messages en attente d'une interrogation 0x55.
 static QueueHandle_t xpressNetTxQueue = nullptr;
 
-static constexpr UBaseType_t TX_QUEUE_LENGTH = 16;
+// Pointeurs vers tampons disponibles pour preparer une commande.
+static QueueHandle_t freeTxSlotsQueue = nullptr;
 
 
 // ============================================================
@@ -495,7 +474,7 @@ size_t buildFunctionFrame(
 
 
 // ============================================================
-// AJOUT D'UNE TRAME PREPAREE A LA QUEUE
+// AJOUT D'UNE TRAME PREPAREE A LA FILE (POINTEUR SEULEMENT)
 // ============================================================
 
 bool queueXpressNetMessage(
@@ -505,51 +484,38 @@ bool queueXpressNetMessage(
   if (data == nullptr ||
       length == 0 ||
       length > MAX_XPRESSNET_BYTES) {
-
-    Serial.println(
-      "ERREUR : message XpressNet invalide");
-
+    Serial.println("ERREUR : message XpressNet invalide");
     return false;
   }
 
-
-  /*
-     Toute la préparation temporellement coûteuse
-     se fait ICI.
-
-     Pas dans XpressNetTask.
-  */
-
-  PreparedXpressNetMessage message = {};
-
-
-  if (!buildSymbols(
-        data,
-        length,
-        message.symbols,
-        message.symbolCount)) {
-
-    Serial.println(
-      "ERREUR preparation symboles RMT");
-
+  if (freeTxSlotsQueue == nullptr || xpressNetTxQueue == nullptr) {
+    Serial.println("ERREUR : FIFO XpressNet non initialisee");
     return false;
   }
 
+  // Recuperation d'un tampon LIBRE avant de preparer les symboles.
+  // Plusieurs producteurs (Serial, TCP) peuvent appeler cette fonction.
+  PreparedXpressNetMessage *message = nullptr;
 
-  /*
-     La queue contient maintenant une copie
-     complète des symboles déjà prêts.
-  */
+  if (xQueueReceive(freeTxSlotsQueue, &message,
+                    pdMS_TO_TICKS(100)) != pdTRUE) {
+    Serial.println("ERREUR : FIFO XpressNet pleine (aucun tampon libre)");
+    return false;
+  }
 
-  if (xQueueSend(
-        xpressNetTxQueue,
-        &message,
-        pdMS_TO_TICKS(100))
-      != pdTRUE) {
+  // Construction en dehors de la tache XpressNet et du chemin critique.
+  if (!buildSymbols(data, length,
+                    message->symbols, message->symbolCount)) {
+    xQueueSend(freeTxSlotsQueue, &message, 0);
+    Serial.println("ERREUR preparation symboles RMT");
+    return false;
+  }
 
-    Serial.println(
-      "ERREUR : FIFO XpressNet pleine");
-
+  // La file ne copie que le POINTEUR, jamais les symboles RMT.
+  if (xQueueSend(xpressNetTxQueue, &message,
+                 pdMS_TO_TICKS(100)) != pdTRUE) {
+    xQueueSend(freeTxSlotsQueue, &message, 0);
+    Serial.println("ERREUR : FIFO XpressNet pleine");
     return false;
   }
 
@@ -637,58 +603,26 @@ static void XpressNetTask(
       normalInquiryCount++;
 
 
-      PreparedXpressNetMessage message;
+      // Une seule copie de 4 octets (pointeur) apres le Call Byte.
+      // Aucun encodage RMT, aucune copie de tableau dans cette section.
+      PreparedXpressNetMessage *message = nullptr;
 
+      if (xQueueReceive(xpressNetTxQueue, &message, 0) == pdTRUE) {
 
-      /*
-         Aucun blocage :
-
-         s'il n'y a pas de commande prête,
-         on ne répond simplement pas.
-      */
-
-      if (xQueueReceive(
-            xpressNetTxQueue,
-            &message,
-            0)
-          == pdTRUE) {
-
-
-        /*
-           ====================================================
-           SECTION TEMPORELLE CRITIQUE
-           ====================================================
-
-           La trame est DEJA entièrement prête.
-
-           Il ne reste que :
-
-               10 us
-                 |
-               RTS HIGH
-                 |
-               RMT
-                 |
-               RTS LOW
-
-           Aucun :
-             - XOR
-             - encodage
-             - Serial
-             - String
-             - malloc
-           ====================================================
-        */
-
-        delayMicroseconds(
-          RESPONSE_DELAY_US);
-
+        if (RESPONSE_DELAY_US > 0) {
+          delayMicroseconds(RESPONSE_DELAY_US);
+        }
 
         if (transmitPreparedSymbols(
-              message.symbols,
-              message.symbolCount)) {
-
+              message->symbols,
+              message->symbolCount)) {
           commandTxCount++;
+        }
+
+        // Le RMT a termine : le tampon peut etre reutilise.
+        // Cette operation a lieu APRES la section temporelle critique.
+        if (xQueueSend(freeTxSlotsQueue, &message, 0) != pdTRUE) {
+          txErrorCount++;
         }
       }
 
@@ -756,8 +690,14 @@ static void initXpressNetUart() {
       UART_PIN_NO_CHANGE));
 
 
-  uart_flush_input(
-    UART_PORT);
+  // CRITIQUE : reveiller la tache des le premier octet XpressNet.
+  // Sans ce seuil, le pilote UART peut retarder le Call Byte et
+  // les commandes sont ignorees ou executees avec retard.
+  ESP_ERROR_CHECK(
+    uart_set_rx_full_threshold(UART_PORT, 1));
+
+  ESP_ERROR_CHECK(
+    uart_flush_input(UART_PORT));
 }
 
 
@@ -881,25 +821,28 @@ void initXpressNet() {
 
 
   // ----------------------------------------------------------
-  // QUEUE
+  // DEUX FILES DE POINTEURS + POOL STATIQUE
   // ----------------------------------------------------------
 
-  xpressNetTxQueue =
-    xQueueCreate(
-      TX_QUEUE_LENGTH,
-      sizeof(PreparedXpressNetMessage));
+  xpressNetTxQueue = xQueueCreate(
+    TX_QUEUE_LENGTH, sizeof(PreparedXpressNetMessage *));
 
+  freeTxSlotsQueue = xQueueCreate(
+    TX_QUEUE_LENGTH, sizeof(PreparedXpressNetMessage *));
 
-  if (xpressNetTxQueue == nullptr) {
-
-    Serial.println(
-      "ERREUR creation FIFO XpressNet");
-
-    while (true) {
-      delay(1000);
-    }
+  if (xpressNetTxQueue == nullptr || freeTxSlotsQueue == nullptr) {
+    Serial.println("ERREUR creation FIFO XpressNet");
+    while (true) { delay(1000); }
   }
 
+  // Tous les tampons sont libres au demarrage.
+  for (size_t i = 0; i < TX_QUEUE_LENGTH; ++i) {
+    PreparedXpressNetMessage *message = &txMessagePool[i];
+    if (xQueueSend(freeTxSlotsQueue, &message, 0) != pdTRUE) {
+      Serial.println("ERREUR initialisation pool XpressNet");
+      while (true) { delay(1000); }
+    }
+  }
 
   // ----------------------------------------------------------
   // XPRESSNET TASK
