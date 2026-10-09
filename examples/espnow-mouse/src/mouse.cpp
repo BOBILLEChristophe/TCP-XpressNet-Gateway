@@ -11,6 +11,7 @@
 #include <string.h>
 #include "MouseState.h"
 #include "MouseDisplay.h"
+#include "MouseEncoder.h"
 
 static MouseState mouseState;
 
@@ -30,12 +31,12 @@ static bool handleLocalDisplayCommand(String line) {
   line.trim();
   // Les fonctions ne sont PAS encore envoyees a la passerelle.
   if (line.length() == 5 && line[0] == 'f' &&
-      line[1] >= '0' && line[1] <= '3' && line[2] == ' ' &&
+      line[1] >= '0' && line[1] <= '4' && line[2] == ' ' &&
       (line.substring(3) == "on" || line.substring(3) == "off")) {
     const uint8_t n = line[1] - '0';
     mouseState.functions[n] = (line.substring(3) == "on");
     MouseDisplay::show(mouseState);
-    Serial.printf("F%u : %s (affichage local seulement)\\n", n,
+    Serial.printf("F%u : %s (affichage local seulement)\n", n,
                   mouseState.functions[n] ? "ON" : "OFF");
     return true;
   }
@@ -97,6 +98,7 @@ static void sendCommand(String line) {
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  MouseEncoder::begin();
   MouseDisplay::begin();
   MouseDisplay::show(mouseState);
   WiFi.mode(WIFI_STA);
@@ -119,10 +121,51 @@ void setup() {
   Serial.printf("Canal      : %u\n", ESPNOW_CHANNEL);
   Serial.println("Saisir : on | off | t 6400 10 1 | t 6400 0 1");
   Serial.println("Terminer chaque commande par Entree.");
-  Serial.println("Affichage local : f0 on | f0 off | ... | f3 on | f3 off");
+  Serial.println("Affichage local : f0 on | f0 off | ... | f4 on | f4 off");
+  Serial.println("Encodeur : rotation=vitesse, appui en marche=STOP, appui a zero=inversion");
+}
+
+// Les commandes de l'encodeur restent en 0..100 sur la souris.
+// Conversion provisoire en 1..126 DCC-EX pour la passerelle existante.
+static uint8_t speedToDccEx(uint8_t speed) {
+  if (speed == 0) return 0;
+  return static_cast<uint8_t>((static_cast<uint32_t>(speed) * 125 + 50) / 100 + 1);
+}
+
+static void sendThrottleFromEncoder() {
+  String command = "<t " + String(mouseState.address) + " " +
+                   String(speedToDccEx(mouseState.speed)) + " " +
+                   String(mouseState.forward ? 1 : 0) + ">";
+  sendCommand(command);
+}
+
+static void handleEncoderEvent(const MouseEncoder::Event &event) {
+  if (event.pressed) {
+    if (mouseState.speed != 0) {
+      mouseState.speed = 0;
+      Serial.println("Encodeur : STOP normal, sens conserve");
+    } else {
+      mouseState.forward = !mouseState.forward;
+      Serial.println("Encodeur : inversion du sens a vitesse 0");
+    }
+    MouseDisplay::show(mouseState);
+    sendThrottleFromEncoder();
+  }
+
+  if (event.step != 0) {
+    const uint8_t speed = MouseEncoder::nextSpeed(mouseState.speed, event.step);
+    if (speed != mouseState.speed) {
+      mouseState.speed = speed;
+      MouseDisplay::show(mouseState);
+      Serial.printf("Encodeur : vitesse=%u sens=%s\\n",
+                    mouseState.speed, mouseState.forward ? ">>" : "<<");
+      sendThrottleFromEncoder();
+    }
+  }
 }
 
 void loop() {
+  handleEncoderEvent(MouseEncoder::poll());
   static String line;
   while (Serial.available()) {
     const char c = static_cast<char>(Serial.read());
