@@ -9,6 +9,39 @@
 #include <esp_wifi.h>
 #include <esp_mac.h>
 #include <string.h>
+#include "MouseState.h"
+#include "MouseDisplay.h"
+
+static MouseState mouseState;
+
+static void updateLocalState(const String &command) {
+  if (command == "<1>" || command == "<0>") return;
+  unsigned addr = 0, speed = 0, dir = 0;
+  if (sscanf(command.c_str(), "<t %u %u %u>", &addr, &speed, &dir) == 3 &&
+      addr >= 1 && addr <= 10239 && speed <= 126 && dir <= 1) {
+    mouseState.address = static_cast<uint16_t>(addr);
+    mouseState.speed = static_cast<uint8_t>(speed);
+    mouseState.forward = (dir == 1);
+    MouseDisplay::show(mouseState);
+  }
+}
+
+static bool handleLocalDisplayCommand(String line) {
+  line.trim();
+  // Les fonctions ne sont PAS encore envoyees a la passerelle.
+  if (line.length() == 5 && line[0] == 'f' &&
+      line[1] >= '0' && line[1] <= '3' && line[2] == ' ' &&
+      (line.substring(3) == "on" || line.substring(3) == "off")) {
+    const uint8_t n = line[1] - '0';
+    mouseState.functions[n] = (line.substring(3) == "on");
+    MouseDisplay::show(mouseState);
+    Serial.printf("F%u : %s (affichage local seulement)\\n", n,
+                  mouseState.functions[n] ? "ON" : "OFF");
+    return true;
+  }
+  return false;
+}
+
 
 constexpr uint8_t ESPNOW_CHANNEL = 6;
 
@@ -35,6 +68,7 @@ static bool gatewayConfigured() {
 static void sendCommand(String line) {
   line.trim();
   if (line.isEmpty()) return;
+  if (handleLocalDisplayCommand(line)) return;
 
   if (line == "on") line = "<1>";
   else if (line == "off") line = "<0>";
@@ -54,6 +88,7 @@ static void sendCommand(String line) {
                               line.length());
   if (err == ESP_OK) {
     Serial.printf("Emission demandee : %s\n", line.c_str());
+    updateLocalState(line);
   } else {
     Serial.printf("Erreur esp_now_send : %d\n", static_cast<int>(err));
   }
@@ -62,6 +97,8 @@ static void sendCommand(String line) {
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  MouseDisplay::begin();
+  MouseDisplay::show(mouseState);
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   ESP_ERROR_CHECK(esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE));
@@ -82,6 +119,7 @@ void setup() {
   Serial.printf("Canal      : %u\n", ESPNOW_CHANNEL);
   Serial.println("Saisir : on | off | t 6400 10 1 | t 6400 0 1");
   Serial.println("Terminer chaque commande par Entree.");
+  Serial.println("Affichage local : f0 on | f0 off | ... | f3 on | f3 off");
 }
 
 void loop() {
