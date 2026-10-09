@@ -15,13 +15,20 @@
 
 static MouseState mouseState;
 
+static bool encoderThrottleCommand = false;
+
 static void updateLocalState(const String &command) {
   if (command == "<1>" || command == "<0>") return;
   unsigned addr = 0, speed = 0, dir = 0;
   if (sscanf(command.c_str(), "<t %u %u %u>", &addr, &speed, &dir) == 3 &&
       addr >= 1 && addr <= 10239 && speed <= 126 && dir <= 1) {
     mouseState.address = static_cast<uint16_t>(addr);
-    mouseState.speed = static_cast<uint8_t>(speed);
+    if (!encoderThrottleCommand) {
+      // Les commandes serie <t> restent en vitesse DCC-EX (0..126).
+      // La souris affiche l'echelle commune 0..100.
+      mouseState.speed = speed == 0 ? 0 :
+          static_cast<uint8_t>(((speed - 1) * 100U + 62U) / 125U);
+    }
     mouseState.forward = (dir == 1);
     MouseDisplay::show(mouseState);
   }
@@ -136,7 +143,9 @@ static void sendThrottleFromEncoder() {
   String command = "<t " + String(mouseState.address) + " " +
                    String(speedToDccEx(mouseState.speed)) + " " +
                    String(mouseState.forward ? 1 : 0) + ">";
+  encoderThrottleCommand = true;
   sendCommand(command);
+  encoderThrottleCommand = false;
 }
 
 static void handleEncoderEvent(const MouseEncoder::Event &event) {
@@ -157,7 +166,7 @@ static void handleEncoderEvent(const MouseEncoder::Event &event) {
     if (speed != mouseState.speed) {
       mouseState.speed = speed;
       MouseDisplay::show(mouseState);
-      Serial.printf("Encodeur : vitesse=%u sens=%s\\n",
+      Serial.printf("Encodeur : vitesse=%u sens=%s\n",
                     mouseState.speed, mouseState.forward ? ">>" : "<<");
       sendThrottleFromEncoder();
     }
