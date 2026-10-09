@@ -7,6 +7,7 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
+#include <esp_mac.h>
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -29,6 +30,18 @@ volatile uint32_t receivedCount = 0;
 volatile uint32_t invalidCount = 0;
 volatile uint32_t unauthorizedCount = 0;
 volatile uint32_t droppedCount = 0;
+
+void printStaMac(const char *label) {
+  uint8_t mac[6] = {};
+  const esp_err_t err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  if (err != ESP_OK) {
+    Serial.printf("%s : erreur esp_read_mac (%d)\n", label, (int)err);
+    return;
+  }
+  Serial.printf("%s : %02X:%02X:%02X:%02X:%02X:%02X\n",
+                label, mac[0], mac[1], mac[2],
+                mac[3], mac[4], mac[5]);
+}
 
 bool macIsConfigured(const uint8_t *mac) {
   for (size_t i = 0; i < 6; ++i) {
@@ -97,7 +110,7 @@ void initEspNow() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
 
-  Serial.printf("MAC passerelle : %s\n", WiFi.macAddress().c_str());
+  printStaMac("MAC passerelle");
   Serial.printf("Canal ESP-NOW  : %u\n", ESPNOW_CHANNEL);
 
   if (!macIsConfigured(ESPNOW_ALLOWED_MOUSE_MAC)) {
@@ -128,7 +141,7 @@ void initEspNow() {
 void printEspNowStatus() {
   Serial.println("----------- ESP-NOW -----------");
   Serial.printf("Canal          : %u\n", ESPNOW_CHANNEL);
-  Serial.printf("MAC locale     : %s\n", WiFi.macAddress().c_str());
+  printStaMac("MAC locale    ");
   Serial.printf("Souris autor.  : %02X:%02X:%02X:%02X:%02X:%02X\n",
                 ESPNOW_ALLOWED_MOUSE_MAC[0], ESPNOW_ALLOWED_MOUSE_MAC[1],
                 ESPNOW_ALLOWED_MOUSE_MAC[2], ESPNOW_ALLOWED_MOUSE_MAC[3],
