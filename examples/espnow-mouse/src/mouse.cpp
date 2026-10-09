@@ -12,6 +12,7 @@
 #include "MouseState.h"
 #include "MouseDisplay.h"
 #include "MouseEncoder.h"
+#include "MouseEmergencyStop.h"
 
 static MouseState mouseState;
 
@@ -106,6 +107,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   MouseEncoder::begin();
+  MouseEmergencyStop::begin();
   MouseDisplay::begin();
   MouseDisplay::show(mouseState);
   WiFi.mode(WIFI_STA);
@@ -130,6 +132,7 @@ void setup() {
   Serial.println("Terminer chaque commande par Entree.");
   Serial.println("Affichage local : f0 on | f0 off | ... | f4 on | f4 off");
   Serial.println("Encodeur : rotation=vitesse, appui en marche=STOP, appui a zero=inversion");
+  Serial.println("E-STOP : GPIO32, arret immediat de la locomotive");
 }
 
 // Les commandes de l'encodeur restent en 0..100 sur la souris.
@@ -146,6 +149,15 @@ static void sendThrottleFromEncoder() {
   encoderThrottleCommand = true;
   sendCommand(command);
   encoderThrottleCommand = false;
+}
+
+static void sendEmergencyStop() {
+  mouseState.speed = 0;
+  MouseDisplay::show(mouseState);
+  const String command = "<t " + String(mouseState.address) + " -1 " +
+                         String(mouseState.forward ? 1 : 0) + ">";
+  Serial.println("ARRET D'URGENCE : vitesse XpressNet 1");
+  sendCommand(command);
 }
 
 static void handleEncoderEvent(const MouseEncoder::Event &event) {
@@ -174,7 +186,15 @@ static void handleEncoderEvent(const MouseEncoder::Event &event) {
 }
 
 void loop() {
-  handleEncoderEvent(MouseEncoder::poll());
+  const bool emergencyPressed = MouseEmergencyStop::poll();
+  // Toujours lire l'encodeur pour ne pas accumuler de transitions.
+  const MouseEncoder::Event encoderEvent = MouseEncoder::poll();
+
+  if (emergencyPressed) {
+    sendEmergencyStop();
+  } else if (!MouseEmergencyStop::isHeld()) {
+    handleEncoderEvent(encoderEvent);
+  }
   static String line;
   while (Serial.available()) {
     const char c = static_cast<char>(Serial.read());
