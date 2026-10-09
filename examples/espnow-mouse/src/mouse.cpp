@@ -7,12 +7,25 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
+#include <esp_mac.h>
 #include <string.h>
 
 constexpr uint8_t ESPNOW_CHANNEL = 6;
 
 // Remplacer par la MAC STA affichée par la passerelle.
 constexpr uint8_t GATEWAY_MAC[6] = {0, 0, 0, 0, 0, 0};
+
+static void printStaMac(const char *label) {
+  uint8_t mac[6] = {};
+  const esp_err_t err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  if (err != ESP_OK) {
+    Serial.printf("%s : erreur esp_read_mac (%d)\n", label, (int)err);
+    return;
+  }
+  Serial.printf("%s : %02X:%02X:%02X:%02X:%02X:%02X\n",
+                label, mac[0], mac[1], mac[2],
+                mac[3], mac[4], mac[5]);
+}
 
 static bool gatewayConfigured() {
   for (uint8_t value : GATEWAY_MAC) if (value != 0) return true;
@@ -65,7 +78,7 @@ void setup() {
   }
 
   Serial.println("\n=== SOURIS ESP-NOW (TEST) ===");
-  Serial.printf("MAC souris : %s\n", WiFi.macAddress().c_str());
+  printStaMac("MAC souris");
   Serial.printf("Canal      : %u\n", ESPNOW_CHANNEL);
   Serial.println("Saisir : on | off | t 6400 10 1 | t 6400 0 1");
   Serial.println("Terminer chaque commande par Entree.");
