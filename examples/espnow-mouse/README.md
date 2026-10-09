@@ -20,3 +20,18 @@ Les deux cartes doivent utiliser **le même canal radio**. Aucun routeur ni acc�
 - Les deux commandes POWER OFF au démarrage de la passerelle sont conservées. Elles ne constituent pas un dispositif de coupure électrique matérielle.
 - La version initiale autorise **une seule souris** ; le support de plusieurs souris viendra après validation.
 - **Non compilé / non testé sur matériel** à ce stade.
+
+## Afficheur LCD 16x2 I2C (branche feature/mouse-lcd)
+
+LCD HD44780 avec interface PCF8574 (adresse 0x27 par defaut, modifiable dans `src/MouseDisplay.cpp`).
+
+- ESP32 classique : SDA GPIO21, SCL GPIO22.
+- ESP32-S3 : SDA GPIO8, SCL GPIO9 (proposition, verifier la carte).
+- VCC et GND : respecter les niveaux logiques. Beaucoup de modules LCD sont alimentes en 5 V et possedent des pull-ups I2C vers 5 V ; ne **pas** les relier directement aux GPIO 3,3 V de l'ESP32. Utiliser un convertisseur de niveau I2C adapte, ou un module compatible 3,3 V.
+- La bibliotheque `LiquidCrystal_I2C` est ajoutee au `platformio.ini`.
+- L'afficheur presente l'adresse DCC, la vitesse demandee, le sens `>>` / `<<` et les fonctions locales actives F0 a F3.
+- Les commandes serie `on`, `off`, `t 6400 10 1`, `t 6400 0 1` continuent d'etre envoyees par ESP-NOW. L'etat local est mis a jour si la demande d'emission est acceptee par la pile ESP-NOW ; il ne s'agit pas d'un retour de la centrale.
+- Les commandes `f0 on`, `f0 off` ... `f3 on`, `f3 off` ne servent **qu'a simuler l'affichage** et ne sont pas transmises a la passerelle.
+- Si le LCD ne repond pas a l'adresse configuree, le programme continue de fonctionner par le moniteur serie.
+
+**Cette evolution n'a pas encore ete compilee ou validee sur le materiel.**
