@@ -34,6 +34,8 @@
 #include "Config.h"
 #include "XpressNet.h"
 #include "TcpNetwork.h"
+#include "EspNow.h"
+#include "DccExProtocol.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -401,7 +403,10 @@ void processSerialCommand(
       functionState);
 
 
-    printNetworkStatus();
+    if (COMMUNICATION_MODE == CommunicationMode::WIFI_TCP)
+      printNetworkStatus();
+    else
+      printEspNowStatus();
 
 
     Serial.println(
@@ -525,7 +530,12 @@ void setup() {
   // NETWORK
   // ----------------------------------------------------------
 
-  initNetwork();
+  if (COMMUNICATION_MODE == CommunicationMode::WIFI_TCP) {
+    initNetwork();
+  } else {
+    initDccExProtocol();
+    initEspNow();
+  }
 
 
   // ----------------------------------------------------------
