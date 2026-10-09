@@ -16,3 +16,21 @@ constexpr uint32_t RESPONSE_DELAY_US = 0;
 constexpr uint32_t ACK_DELAY_US = 48;
 
 constexpr uint16_t TEST_LOCO_ADDRESS = 6400;
+
+// Mode exclusif : le TCP Wi-Fi v1.0 reste le choix par défaut.
+enum class CommunicationMode : uint8_t {
+  WIFI_TCP,
+  ESP_NOW
+};
+
+constexpr CommunicationMode COMMUNICATION_MODE =
+    CommunicationMode::WIFI_TCP; // passer à ESP_NOW pour les essais
+
+// Canal 2,4 GHz identique sur la passerelle et la souris.
+constexpr uint8_t ESPNOW_CHANNEL = 6;
+
+// MAC Wi-Fi STA de la souris autorisée. 00:00:00:00:00:00 = désactivé.
+// La souris affiche sa MAC dans le moniteur série au démarrage.
+constexpr uint8_t ESPNOW_ALLOWED_MOUSE_MAC[6] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
