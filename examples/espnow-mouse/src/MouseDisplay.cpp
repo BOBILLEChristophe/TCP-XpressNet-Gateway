@@ -47,6 +47,8 @@ namespace MouseDisplay {
 
 void begin() {
   Wire.begin(LCD_SDA_PIN, LCD_SCL_PIN);
+  Wire.setClock(100000);
+  delay(100);
 
   Wire.beginTransmission(LCD_I2C_ADDRESS);
   if (Wire.endTransmission() != 0) {
@@ -70,19 +72,21 @@ void show(const MouseState &state) {
   char line0[17] = {};
   char line1[17] = {};
 
-  // 15 caracteres : "LOCO 6400  10>>", avec adresses jusqu'a 10239.
-  snprintf(line0, sizeof(line0), "LOCO%5u %3u%s",
+  // 16 caracteres au maximum : "L1: 6400 >> 100".
+  snprintf(line0, sizeof(line0), "L%u: %u %s %u",
+           static_cast<unsigned>(state.slot),
            static_cast<unsigned>(state.address),
-           static_cast<unsigned>(state.speed),
-           state.forward ? ">>" : "<<");
+           state.forward ? ">>" : "<<",
+           static_cast<unsigned>(state.speed));
   pad16(line0);
 
-  // Affiche uniquement les fonctions actives (simulation locale F0..F3).
-  snprintf(line1, sizeof(line1), "%-3s%-3s%-3s%-3s",
+  // F0..F4 : 5 emplacements fixes de 3 caracteres.
+  snprintf(line1, sizeof(line1), "%-3s%-3s%-3s%-3s%-3s",
            state.functions[0] ? "F0" : "",
            state.functions[1] ? "F1" : "",
            state.functions[2] ? "F2" : "",
-           state.functions[3] ? "F3" : "");
+           state.functions[3] ? "F3" : "",
+           state.functions[4] ? "F4" : "");
   pad16(line1);
 
   writeChangedLine(0, line0, previousLine0);
