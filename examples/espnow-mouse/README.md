@@ -56,3 +56,15 @@ Version experimentale : ne pas fusionner avec main avant les essais sur materiel
 - Pas d'accuse de reception de la centrale. Essais sur voie isolee recommandes.
 
 Integration non compilee ni testee sur materiel.
+
+## Bouton d'arret d'urgence (branche feature/mouse-estop)
+
+- Poussoir normalement ouvert entre GPIO32 et GND, INPUT_PULLUP.
+- Anti-rebond de 30 ms : une seule commande par appui.
+- A l'appui, consigne locale remise a 0 et envoi de <t ADRESSE -1 SENS>.
+- La passerelle traduit -1 (convention DCC-EX) en valeur XpressNet 1 (arret d'urgence).
+- Le sens reste inchange. L'encodeur est ignore tant que le bouton reste enfonce.
+- Le redemarrage exige une nouvelle rotation horaire de l'encodeur apres relachement.
+- L'envoi ESP-NOW n'est pas un acquittement de la centrale ; la liaison radio ne remplace pas un dispositif de securite materiel.
+- Avant televersement, renseigner GATEWAY_MAC dans src/mouse.cpp.
+- Essais recommandes sur une voie isolee ; integration non encore testee sur materiel.
