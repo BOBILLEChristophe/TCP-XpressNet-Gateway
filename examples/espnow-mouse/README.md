@@ -35,3 +35,24 @@ LCD HD44780 avec interface PCF8574 (adresse 0x27 par defaut, modifiable dans `sr
 - Si le LCD ne repond pas a l'adresse configuree, le programme continue de fonctionner par le moniteur serie.
 
 **Cette evolution n'a pas encore ete compilee ou validee sur le materiel.**
+
+## Encodeur rotatif EC11 (branche feature/mouse-encoder)
+
+Version experimentale : ne pas fusionner avec main avant les essais sur materiel.
+
+- A -> GPIO25, B -> GPIO26, commun -> GND ; poussoir -> GPIO27 et GND.
+- Contacts mecaniques en INPUT_PULLUP, sans alimentation propre.
+- Decodage valide sur encodeur reel : 4 transitions par cran, retour a 11.
+- Rotation horaire : augmentation de vitesse ; antihoraire : diminution jusqu'a 0.
+- Appui avec vitesse > 0 : STOP normal, sens conserve.
+- Appui avec vitesse = 0 : inversion de sens, vitesse reste a 0.
+- Vitesse interne 0..100 ; envoi provisoire de valeurs DCC-EX 0..126 par ESP-NOW.
+- Paliers : 0, 2, 3...10, 12, 15, 18...57, 62, 67...97, 100.
+- LCD : L1: 6400 >> 100 ; fonctions F0..F4 sur la seconde ligne.
+- Les commandes serie t ... conservent l'echelle DCC-EX actuelle et sont converties pour l'affichage 0..100.
+- Les commandes f0 on ... f4 on restent des simulations locales.
+- Boutons POWER/E-STOP et clavier numerique non implementes.
+- Renseigner GATEWAY_MAC localement dans src/mouse.cpp avant l'essai.
+- Pas d'accuse de reception de la centrale. Essais sur voie isolee recommandes.
+
+Integration non compilee ni testee sur materiel.
