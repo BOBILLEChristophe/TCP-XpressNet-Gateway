@@ -14,6 +14,7 @@
 #include "MouseBattery.h"
 #include "MouseEncoder.h"
 #include "MouseEmergencyStop.h"
+#include "MouseKeypad.h"
 
 static MouseState mouseState;
 
@@ -132,6 +133,7 @@ void setup() {
   delay(1000);
   MouseEncoder::begin();
   MouseEmergencyStop::begin();
+  MouseKeypad::begin();
   MouseDisplay::begin();
   MouseBattery::begin();
   redrawDisplay();
@@ -212,6 +214,14 @@ static void handleEncoderEvent(const MouseEncoder::Event &event) {
 
 void loop() {
   const bool batteryUpdated = MouseBattery::poll();
+  const int8_t keypadFunction = MouseKeypad::poll();
+  if (keypadFunction >= 0) {
+    const bool newState = !mouseState.functions[keypadFunction];
+    Serial.printf("Clavier : F%d %s demande\n", keypadFunction,
+                  newState ? "ON" : "OFF");
+    sendCommand("f" + String(keypadFunction) +
+                (newState ? " on" : " off"));
+  }
   const bool emergencyPressed = MouseEmergencyStop::poll();
   // Toujours lire l'encodeur pour ne pas accumuler de transitions.
   const MouseEncoder::Event encoderEvent = MouseEncoder::poll();
