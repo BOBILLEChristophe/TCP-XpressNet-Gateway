@@ -15,13 +15,67 @@
 #include "MouseEncoder.h"
 #include "MouseEmergencyStop.h"
 #include "MouseKeypad.h"
+#include "LocoManager.h"
 
-static MouseState mouseState;
-
+static void redrawDisplay();
+static void sendCommand(String line);
+static LocoManager locoManager;
 static bool encoderThrottleCommand = false;
+static bool selectingLoco = false;
+static uint8_t pendingSlot = 0;
+
+// Un alias sur l'etat du slot actif. Jamais de copie lors d'une selection.
+static MouseState &activeLoco() { return locoManager.current(); }
+
+static void handleKey(uint8_t key) {
+  // Position matrice : 0..8 = touches 1..9 ; 9='*', 10='0', 11='#'.
+  if (key == 11) {
+    if (!selectingLoco) {
+      selectingLoco = true;
+      pendingSlot = 0;
+      Serial.println("Selection loco : # numero #, * annule");
+      return;
+    }
+    if (pendingSlot == 0) {
+      Serial.println("Selection : saisir d'abord un numero (1..8)");
+      return;
+    }
+    if (!locoManager.select(pendingSlot)) {
+      Serial.printf("Loco %u non configuree : adresse a definir dans LocoManager.cpp\n",
+                    pendingSlot);
+    } else {
+      Serial.printf("Loco %u selectionnee (DCC %u), sans commande de vitesse\n",
+                    activeLoco().slot, activeLoco().address);
+    }
+    selectingLoco = false;
+    pendingSlot = 0;
+    redrawDisplay();
+    return;
+  }
+  if (selectingLoco) {
+    if (key == 9) { // *
+      selectingLoco = false;
+      pendingSlot = 0;
+      Serial.println("Selection annulee");
+    } else if (key <= 7) {
+      pendingSlot = key + 1;
+      Serial.printf("Selection en attente : loco %u, confirmer avec #\n", pendingSlot);
+    } else {
+      Serial.println("Selection : seuls les numeros 1..8 sont disponibles");
+    }
+    return;
+  }
+  if (key <= 7) {
+    const bool newState = !activeLoco().functions[key];
+    Serial.printf("Clavier : F%u %s demande\n", key, newState ? "ON" : "OFF");
+    sendCommand("f" + String(key) + (newState ? " on" : " off"));
+  }
+}
+
+
 
 static void redrawDisplay() {
-  MouseDisplay::show(mouseState, MouseBattery::reading());
+  MouseDisplay::show(activeLoco(), MouseBattery::reading());
 }
 
 static void updateLocalState(const String &command) {
@@ -29,15 +83,19 @@ static void updateLocalState(const String &command) {
   unsigned addr = 0, speed = 0, dir = 0;
   if (sscanf(command.c_str(), "<t %u %u %u>", &addr, &speed, &dir) == 3 &&
       addr >= 1 && addr <= 10239 && speed <= 126 && dir <= 1) {
-    mouseState.address = static_cast<uint16_t>(addr);
+    MouseState *target = locoManager.findByAddress(static_cast<uint16_t>(addr));
+    if (target == nullptr) {
+      Serial.printf("Commande DCC %u : adresse absente de la liste, affichage inchange\n", addr);
+      return;
+    }
     if (!encoderThrottleCommand) {
       // Les commandes serie <t> restent en vitesse DCC-EX (0..126).
       // La souris affiche l'echelle commune 0..100.
-      mouseState.speed = speed == 0 ? 0 :
+      target->speed = speed == 0 ? 0 :
           static_cast<uint8_t>(((speed - 1) * 100U + 62U) / 125U);
     }
-    mouseState.forward = (dir == 1);
-    redrawDisplay();
+    target->forward = (dir == 1);
+    if (target == &activeLoco()) redrawDisplay();
   }
 }
 
@@ -90,7 +148,7 @@ static void sendCommand(String line) {
 
   if (functionCommand) {
     // Protocole prive souris/passerelle, traite par DccExProtocol.cpp.
-    line = "<f " + String(mouseState.address) + " " +
+    line = "<f " + String(activeLoco().address) + " " +
            String(functionNumber) + " " + String(functionEnabled ? 1 : 0) + ">";
   } else if (line == "on") line = "<1>";
   else if (line == "off") line = "<0>";
@@ -118,7 +176,7 @@ static void sendCommand(String line) {
   if (functionCommand) {
     // Etat local optimiste : ESP_OK indique la mise en file radio,
     // PAS la reception par la passerelle ni l'execution XpressNet.
-    mouseState.functions[functionNumber] = functionEnabled;
+    activeLoco().functions[functionNumber] = functionEnabled;
     redrawDisplay();
     Serial.printf("F%u : %s (emission demandee, sans acquittement)\n",
                   functionNumber, functionEnabled ? "ON" : "OFF");
@@ -131,6 +189,7 @@ static void sendCommand(String line) {
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  locoManager.begin();
   MouseEncoder::begin();
   MouseEmergencyStop::begin();
   MouseKeypad::begin();
@@ -171,15 +230,15 @@ static uint8_t speedToDccEx(uint8_t speed) {
 
 static void sendThrottleFromEncoder() {
   String command = "<t " + String(mouseState.address) + " " +
-                   String(speedToDccEx(mouseState.speed)) + " " +
-                   String(mouseState.forward ? 1 : 0) + ">";
+                   String(speedToDccEx(activeLoco().speed)) + " " +
+                   String(activeLoco().forward ? 1 : 0) + ">";
   encoderThrottleCommand = true;
   sendCommand(command);
   encoderThrottleCommand = false;
 }
 
 static void sendEmergencyStop() {
-  mouseState.speed = 0;
+  activeLoco().speed = 0;
   redrawDisplay();
   const String command = "<t " + String(mouseState.address) + " -1 " +
                          String(mouseState.forward ? 1 : 0) + ">";
@@ -189,11 +248,11 @@ static void sendEmergencyStop() {
 
 static void handleEncoderEvent(const MouseEncoder::Event &event) {
   if (event.pressed) {
-    if (mouseState.speed != 0) {
-      mouseState.speed = 0;
+    if (activeLoco().speed != 0) {
+      activeLoco().speed = 0;
       Serial.println("Encodeur : STOP normal, sens conserve");
     } else {
-      mouseState.forward = !mouseState.forward;
+      activeLoco().forward = !activeLoco().forward;
       Serial.println("Encodeur : inversion du sens a vitesse 0");
     }
     redrawDisplay();
@@ -201,12 +260,12 @@ static void handleEncoderEvent(const MouseEncoder::Event &event) {
   }
 
   if (event.step != 0) {
-    const uint8_t speed = MouseEncoder::nextSpeed(mouseState.speed, event.step);
-    if (speed != mouseState.speed) {
-      mouseState.speed = speed;
+    const uint8_t speed = MouseEncoder::nextSpeed(activeLoco().speed, event.step);
+    if (speed != activeLoco().speed) {
+      activeLoco().speed = speed;
       redrawDisplay();
       Serial.printf("Encodeur : vitesse=%u sens=%s\n",
-                    mouseState.speed, mouseState.forward ? ">>" : "<<");
+                    activeLoco().speed, activeLoco().forward ? ">>" : "<<");
       sendThrottleFromEncoder();
     }
   }
@@ -214,21 +273,18 @@ static void handleEncoderEvent(const MouseEncoder::Event &event) {
 
 void loop() {
   const bool batteryUpdated = MouseBattery::poll();
-  const int8_t keypadFunction = MouseKeypad::poll();
-  if (keypadFunction >= 0) {
-    const bool newState = !mouseState.functions[keypadFunction];
-    Serial.printf("Clavier : F%d %s demande\n", keypadFunction,
-                  newState ? "ON" : "OFF");
-    sendCommand("f" + String(keypadFunction) +
-                (newState ? " on" : " off"));
-  }
+  const int8_t key = MouseKeypad::poll();
   const bool emergencyPressed = MouseEmergencyStop::poll();
+  // L'arret d'urgence reste prioritaire, meme pendant la selection.
+  if (!emergencyPressed && !MouseEmergencyStop::isHeld() && key >= 0) {
+    handleKey(static_cast<uint8_t>(key));
+  }
   // Toujours lire l'encodeur pour ne pas accumuler de transitions.
   const MouseEncoder::Event encoderEvent = MouseEncoder::poll();
 
   if (emergencyPressed) {
     sendEmergencyStop();
-  } else if (!MouseEmergencyStop::isHeld()) {
+  } else if (!MouseEmergencyStop::isHeld() && !selectingLoco) {
     handleEncoderEvent(encoderEvent);
   }
   static String line;
