@@ -278,6 +278,90 @@ static bool processThrottleCommand() {
 }
 
 
+
+// ============================================================
+// FONCTIONS LOCOMOTIVE : <f ADRESSE NUMERO ETAT>
+// Numero 0..7, etat 0 ou 1.
+// Deux groupes XpressNet : F0..F4 (0x20), F5..F8 (0x21).
+// Les etats sont conserves par adresse, pour ne pas effacer
+// les autres fonctions du meme groupe lors d'une modification.
+// ============================================================
+
+namespace {
+struct FunctionState {
+  uint16_t address = 0;
+  uint8_t group0 = 0;
+  uint8_t group1 = 0;
+  uint32_t lastUse = 0;
+};
+
+constexpr size_t FUNCTION_STATE_CAPACITY = 32;
+FunctionState functionStates[FUNCTION_STATE_CAPACITY];
+uint32_t functionSequence = 0;
+uint32_t functionCount = 0;
+
+FunctionState &findFunctionState(uint16_t address) {
+  FunctionState *oldest = &functionStates[0];
+  for (FunctionState &state : functionStates) {
+    if (state.address == address) return state;
+    if (state.address == 0) {
+      state.address = address;
+      state.group0 = 0;
+      state.group1 = 0;
+      return state;
+    }
+    if (state.lastUse < oldest->lastUse) oldest = &state;
+  }
+  // Cache limite : eviter la perte silencieuse des autres fonctions
+  // d'une locomotive si plus de 32 adresses ont ete utilisees.
+  return *oldest;
+}
+} // namespace
+
+static bool processFunctionCommand() {
+  unsigned int address = 0;
+  unsigned int number = 0;
+  unsigned int enabled = 0;
+  char extra = '\0';
+
+  if (sscanf(commandBuffer, "f %u %u %u %c",
+             &address, &number, &enabled, &extra) != 3 ||
+      address < 1 || address > 10239 ||
+      number > 7 || enabled > 1) {
+    return false;
+  }
+
+  FunctionState &state = findFunctionState(static_cast<uint16_t>(address));
+  if (state.address != address) {
+    state.address = static_cast<uint16_t>(address);
+    state.group0 = 0;
+    state.group1 = 0;
+  }
+
+  const uint8_t group = number <= 4 ? 0 : 1;
+  const uint8_t bit = number == 0 ? 4 :
+                      number <= 4 ? number - 1 : number - 5;
+  const uint8_t mask = static_cast<uint8_t>(1U << bit);
+  const uint8_t current = group == 0 ? state.group0 : state.group1;
+  const uint8_t next = enabled ? (current | mask) : (current & ~mask);
+
+  uint8_t frame[MAX_XPRESSNET_BYTES];
+  const size_t length = buildFunctionGroupFrame(
+      static_cast<uint16_t>(address), group, next, frame);
+  if (length == 0 || !queueXpressNetMessage(frame, length)) {
+    Serial.println("DCC-EX <f> -> FIFO XpressNet pleine");
+    return true;
+  }
+
+  if (group == 0) state.group0 = next;
+  else state.group1 = next;
+  state.lastUse = ++functionSequence;
+  ++functionCount;
+  Serial.printf("DCC-EX <f> -> loco %u F%u %s groupe %u masque 0x%02X\\n",
+                address, number, enabled ? "ON" : "OFF", group, next);
+  return true;
+}
+
 // ============================================================
 // TRAITEMENT D'UNE COMMANDE COMPLETE
 // ============================================================
@@ -349,6 +433,14 @@ static void processCommand() {
   }
 
 
+  // FONCTIONS F0..F7
+  if (commandBuffer[0] == 'f') {
+    if (processFunctionCommand()) return;
+    ++invalidCommandCount;
+    Serial.printf("DCC-EX commande <f> invalide : <%s>\\n", commandBuffer);
+    return;
+  }
+
   // ----------------------------------------------------------
   // COMMANDE NON IMPLEMENTEE
   // ----------------------------------------------------------
@@ -379,7 +471,7 @@ void initDccExProtocol() {
 
 
   Serial.println(
-    "Protocole DCC-EX : <1> / <0> / <t CAB SPEED DIRECTION>");
+    "Protocole DCC-EX : <1> / <0> / <t CAB SPEED DIRECTION> / <f CAB FNUM ETAT>");
 }
 
 
