@@ -4,7 +4,7 @@ namespace {
 // GPIO libres sur la souris ESP32 classique.
 // Ne pas utiliser les broches de l'OLED, de l'encodeur,
 // de l'arret d'urgence ou de la mesure batterie.
-constexpr uint8_t ROW_PINS[4] = {13, 14, 16, 17};
+constexpr uint8_t ROW_PINS[4] = {13, 14, 4, 33};
 constexpr uint8_t COL_PINS[3] = {18, 19, 23};
 constexpr uint32_t DEBOUNCE_MS = 30;
 constexpr int8_t NO_KEY = -1;
@@ -49,8 +49,8 @@ void begin() {
   stableKey = lastRawKey; // aucun appui artificiel au demarrage
   lastChangeMs = millis();
 
-  Serial.println("Clavier 3x4 : lignes 13,14,16,17 / colonnes 18,19,23");
-  Serial.println("Touches 1..8 : F0..F7 (un appui = bascule ON/OFF)");
+  Serial.println("Clavier 3x4 : lignes 13,14,4,33 / colonnes 18,19,23");
+  Serial.println("Touches 1..8 : F0..F7 ; # numero # = selection loco");
 }
 
 int8_t poll() {
@@ -65,7 +65,7 @@ int8_t poll() {
   if (rawKey != stableKey && now - lastChangeMs >= DEBOUNCE_MS) {
     stableKey = rawKey;
     // Seul le front d'appui est pris en compte ; relacher n'envoie rien.
-    if (stableKey >= 0 && stableKey < 8) return stableKey;
+    if (stableKey >= 0 && stableKey < 12) return stableKey;
   }
   return NO_KEY;
 }
