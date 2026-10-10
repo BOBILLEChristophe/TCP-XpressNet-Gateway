@@ -357,7 +357,7 @@ static bool processFunctionCommand() {
   else state.group1 = next;
   state.lastUse = ++functionSequence;
   ++functionCount;
-  Serial.printf("DCC-EX <f> -> loco %u F%u %s groupe %u masque 0x%02X\\n",
+  Serial.printf("DCC-EX <f> -> loco %u F%u %s groupe %u masque 0x%02X\n",
                 address, number, enabled ? "ON" : "OFF", group, next);
   return true;
 }
@@ -437,7 +437,7 @@ static void processCommand() {
   if (commandBuffer[0] == 'f') {
     if (processFunctionCommand()) return;
     ++invalidCommandCount;
-    Serial.printf("DCC-EX commande <f> invalide : <%s>\\n", commandBuffer);
+    Serial.printf("DCC-EX commande <f> invalide : <%s>\n", commandBuffer);
     return;
   }
 
