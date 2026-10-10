@@ -217,6 +217,7 @@ void setup() {
   Serial.println("Saisir : on | off | t 6400 10 1 | t 6400 0 1");
   Serial.println("Terminer chaque commande par Entree.");
   Serial.println("Fonctions ESP-NOW : f0 on | f0 off | ... | f7 on | f7 off");
+  Serial.println("Selection locomotive : # numero(1..8) #, * pour annuler");
   Serial.println("Encodeur : rotation=vitesse, appui en marche=STOP, appui a zero=inversion");
   Serial.println("E-STOP : GPIO32, arret immediat de la locomotive");
 }
@@ -229,7 +230,7 @@ static uint8_t speedToDccEx(uint8_t speed) {
 }
 
 static void sendThrottleFromEncoder() {
-  String command = "<t " + String(mouseState.address) + " " +
+  String command = "<t " + String(activeLoco().address) + " " +
                    String(speedToDccEx(activeLoco().speed)) + " " +
                    String(activeLoco().forward ? 1 : 0) + ">";
   encoderThrottleCommand = true;
@@ -240,8 +241,8 @@ static void sendThrottleFromEncoder() {
 static void sendEmergencyStop() {
   activeLoco().speed = 0;
   redrawDisplay();
-  const String command = "<t " + String(mouseState.address) + " -1 " +
-                         String(mouseState.forward ? 1 : 0) + ">";
+  const String command = "<t " + String(activeLoco().address) + " -1 " +
+                         String(activeLoco().forward ? 1 : 0) + ">";
   Serial.println("ARRET D'URGENCE : vitesse XpressNet 1");
   sendCommand(command);
 }
