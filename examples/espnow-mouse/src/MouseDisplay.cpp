@@ -2,95 +2,94 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
-#include <stdio.h>
-#include <string.h>
+#include <U8g2lib.h>
 
 namespace {
+// OLED valide 0,96 pouce : SSD1306 128x64 I2C.
+// Pour le futur 1,3 pouce SH1106, remplacer uniquement le constructeur.
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(
+    U8G2_R0, U8X8_PIN_NONE, 22, 21);
+bool oledPresent = false;
 
-// LCD 16x2 avec adaptateur PCF8574 : changer 0x27 en 0x3F si necessaire.
-constexpr uint8_t LCD_I2C_ADDRESS = 0x27;
-constexpr uint8_t LCD_COLUMNS = 16;
-constexpr uint8_t LCD_ROWS = 2;
+constexpr uint8_t OLED_ADDR = 0x3C;
 
-// Broches proposees pour les cartes de developpement usuelles.
-// Verifier la disponibilite sur le modele exact avant de cabler.
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
-constexpr int LCD_SDA_PIN = 8;
-constexpr int LCD_SCL_PIN = 9;
-#else
-constexpr int LCD_SDA_PIN = 21;
-constexpr int LCD_SCL_PIN = 22;
-#endif
-
-LiquidCrystal_I2C lcd(LCD_I2C_ADDRESS, LCD_COLUMNS, LCD_ROWS);
-bool lcdPresent = false;
-char previousLine0[17] = {};
-char previousLine1[17] = {};
-
-void pad16(char *line) {
-  const size_t n = strlen(line);
-  for (size_t i = n; i < LCD_COLUMNS; ++i) line[i] = ' ';
-  line[LCD_COLUMNS] = '\0';
-}
-
-void writeChangedLine(uint8_t row, const char *text, char *previous) {
-  if (strcmp(text, previous) == 0) return;
-  lcd.setCursor(0, row);
-  lcd.print(text);
-  strcpy(previous, text);
-}
-
-} // namespace
+}  // namespace
 
 namespace MouseDisplay {
-
 void begin() {
-  Wire.begin(LCD_SDA_PIN, LCD_SCL_PIN);
+  Wire.begin(21, 22);
   Wire.setClock(100000);
   delay(100);
 
-  Wire.beginTransmission(LCD_I2C_ADDRESS);
+  Wire.beginTransmission(OLED_ADDR);
   if (Wire.endTransmission() != 0) {
-    Serial.printf("LCD absent a l'adresse 0x%02X (SDA=%d, SCL=%d)\n",
-                  LCD_I2C_ADDRESS, LCD_SDA_PIN, LCD_SCL_PIN);
-    Serial.println("La souris reste utilisable par le moniteur serie.");
+    Serial.println("OLED absent a 0x3C (SDA=21, SCL=22).");
+    Serial.println("La souris reste utilisable via le moniteur serie.");
+    oledPresent = false;
     return;
   }
-
-  lcd.init();
-  lcd.backlight();
-  lcd.clear();
-  lcdPresent = true;
-  Serial.printf("LCD 16x2 detecte : 0x%02X, SDA=%d, SCL=%d\n",
-                LCD_I2C_ADDRESS, LCD_SDA_PIN, LCD_SCL_PIN);
+  oled.begin();
+  oledPresent = true;
+  Serial.println("OLED SSD1306 128x64 initialise (SDA=21, SCL=22)");
 }
 
-void show(const MouseState &state) {
-  if (!lcdPresent) return;
+void show(const MouseState &state, const BatteryReading &battery) {
+  if (!oledPresent) return;
 
-  char line0[17] = {};
-  char line1[17] = {};
+  oled.clearBuffer();
+  oled.setDrawColor(1);
 
-  // 16 caracteres au maximum : "L1: 6400 >> 100".
-  snprintf(line0, sizeof(line0), "L%u: %u %s %u",
+  oled.setFont(u8g2_font_6x10_tf);
+  char loco[22];
+  snprintf(loco, sizeof(loco), "Loco #%u : %u",
            static_cast<unsigned>(state.slot),
-           static_cast<unsigned>(state.address),
-           state.forward ? ">>" : "<<",
+           static_cast<unsigned>(state.address));
+  oled.drawStr(0, 10, loco);
+
+  char charge[6];
+  snprintf(charge, sizeof(charge), "%u%%",
+           static_cast<unsigned>(battery.percent));
+
+  // Sous 30 %, le pourcentage clignote en inverse video.
+  const bool warningOn = battery.low && ((millis() / 500) % 2 == 0);
+  if (warningOn) {
+    oled.drawBox(88, 0, 26, 11);
+    oled.setDrawColor(0);
+  }
+  oled.drawStr(89, 10, charge);
+  oled.setDrawColor(1);
+
+  oled.drawFrame(115, 1, 11, 8);
+  oled.drawBox(126, 3, 2, 4);
+  const uint8_t fill =
+      (static_cast<uint16_t>(battery.percent) * 7 + 50) / 100;
+  if (fill != 0) oled.drawBox(117, 3, fill, 4);
+
+  char speedText[5];
+  snprintf(speedText, sizeof(speedText), "%u",
            static_cast<unsigned>(state.speed));
-  pad16(line0);
+  oled.setFont(u8g2_font_logisoso24_tn);
+  const int speedX = (74 - oled.getStrWidth(speedText)) / 2;
+  oled.drawStr(speedX > 0 ? speedX : 0, 42, speedText);
 
-  // F0..F4 : 5 emplacements fixes de 3 caracteres.
-  snprintf(line1, sizeof(line1), "%-3s%-3s%-3s%-3s%-3s",
-           state.functions[0] ? "F0" : "",
-           state.functions[1] ? "F1" : "",
-           state.functions[2] ? "F2" : "",
-           state.functions[3] ? "F3" : "",
-           state.functions[4] ? "F4" : "");
-  pad16(line1);
+  oled.setFont(u8g2_font_9x15B_tf);
+  oled.drawStr(82, 35, state.forward ? ">>" : "<<");
 
-  writeChangedLine(0, line0, previousLine0);
-  writeChangedLine(1, line1, previousLine1);
+  oled.setFont(u8g2_font_5x7_tf);
+  for (uint8_t i = 0; i < 8; ++i) {
+    const int x = i * 16;
+    if (state.functions[i]) {
+      oled.drawBox(x, 51, 15, 12);
+      oled.setDrawColor(0);
+    } else {
+      oled.drawFrame(x, 51, 15, 12);
+      oled.setDrawColor(1);
+    }
+    char label[4];
+    snprintf(label, sizeof(label), "F%u", i);
+    oled.drawStr(x + 2, 60, label);
+    oled.setDrawColor(1);
+  }
+  oled.sendBuffer();
 }
-
-} // namespace MouseDisplay
+}  // namespace MouseDisplay
