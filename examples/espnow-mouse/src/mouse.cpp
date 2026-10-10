@@ -11,12 +11,17 @@
 #include <string.h>
 #include "MouseState.h"
 #include "MouseDisplay.h"
+#include "MouseBattery.h"
 #include "MouseEncoder.h"
 #include "MouseEmergencyStop.h"
 
 static MouseState mouseState;
 
 static bool encoderThrottleCommand = false;
+
+static void redrawDisplay() {
+  MouseDisplay::show(mouseState, MouseBattery::reading());
+}
 
 static void updateLocalState(const String &command) {
   if (command == "<1>" || command == "<0>") return;
@@ -31,19 +36,19 @@ static void updateLocalState(const String &command) {
           static_cast<uint8_t>(((speed - 1) * 100U + 62U) / 125U);
     }
     mouseState.forward = (dir == 1);
-    MouseDisplay::show(mouseState);
+    redrawDisplay();
   }
 }
 
 static bool handleLocalDisplayCommand(String line) {
   line.trim();
   // Les fonctions ne sont PAS encore envoyees a la passerelle.
-  if (line.length() == 5 && line[0] == 'f' &&
-      line[1] >= '0' && line[1] <= '4' && line[2] == ' ' &&
+  if (line.length() >= 5 && line[0] == 'f' &&
+      line[1] >= '0' && line[1] <= '7' && line[2] == ' ' &&
       (line.substring(3) == "on" || line.substring(3) == "off")) {
     const uint8_t n = line[1] - '0';
     mouseState.functions[n] = (line.substring(3) == "on");
-    MouseDisplay::show(mouseState);
+    redrawDisplay();
     Serial.printf("F%u : %s (affichage local seulement)\n", n,
                   mouseState.functions[n] ? "ON" : "OFF");
     return true;
@@ -109,7 +114,8 @@ void setup() {
   MouseEncoder::begin();
   MouseEmergencyStop::begin();
   MouseDisplay::begin();
-  MouseDisplay::show(mouseState);
+  MouseBattery::begin();
+  redrawDisplay();
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   ESP_ERROR_CHECK(esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE));
@@ -130,7 +136,7 @@ void setup() {
   Serial.printf("Canal      : %u\n", ESPNOW_CHANNEL);
   Serial.println("Saisir : on | off | t 6400 10 1 | t 6400 0 1");
   Serial.println("Terminer chaque commande par Entree.");
-  Serial.println("Affichage local : f0 on | f0 off | ... | f4 on | f4 off");
+  Serial.println("Affichage local : f0 on | f0 off | ... | f7 on | f7 off");
   Serial.println("Encodeur : rotation=vitesse, appui en marche=STOP, appui a zero=inversion");
   Serial.println("E-STOP : GPIO32, arret immediat de la locomotive");
 }
@@ -153,7 +159,7 @@ static void sendThrottleFromEncoder() {
 
 static void sendEmergencyStop() {
   mouseState.speed = 0;
-  MouseDisplay::show(mouseState);
+  redrawDisplay();
   const String command = "<t " + String(mouseState.address) + " -1 " +
                          String(mouseState.forward ? 1 : 0) + ">";
   Serial.println("ARRET D'URGENCE : vitesse XpressNet 1");
@@ -169,7 +175,7 @@ static void handleEncoderEvent(const MouseEncoder::Event &event) {
       mouseState.forward = !mouseState.forward;
       Serial.println("Encodeur : inversion du sens a vitesse 0");
     }
-    MouseDisplay::show(mouseState);
+    redrawDisplay();
     sendThrottleFromEncoder();
   }
 
@@ -177,7 +183,7 @@ static void handleEncoderEvent(const MouseEncoder::Event &event) {
     const uint8_t speed = MouseEncoder::nextSpeed(mouseState.speed, event.step);
     if (speed != mouseState.speed) {
       mouseState.speed = speed;
-      MouseDisplay::show(mouseState);
+      redrawDisplay();
       Serial.printf("Encodeur : vitesse=%u sens=%s\n",
                     mouseState.speed, mouseState.forward ? ">>" : "<<");
       sendThrottleFromEncoder();
@@ -186,6 +192,7 @@ static void handleEncoderEvent(const MouseEncoder::Event &event) {
 }
 
 void loop() {
+  const bool batteryUpdated = MouseBattery::poll();
   const bool emergencyPressed = MouseEmergencyStop::poll();
   // Toujours lire l'encodeur pour ne pas accumuler de transitions.
   const MouseEncoder::Event encoderEvent = MouseEncoder::poll();
@@ -206,6 +213,19 @@ void loop() {
     } else {
       line = "";
       Serial.println("Commande trop longue");
+    }
+  }
+  // Actualiser la jauge et l'alerte batterie sans ralentir l'encodeur.
+  static uint32_t lastBatteryDrawMs = 0;
+  const BatteryReading battery = MouseBattery::reading();
+  const uint32_t now = millis();
+  if (batteryUpdated ||
+      (battery.low && now - lastBatteryDrawMs >= 500)) {
+    redrawDisplay();
+    lastBatteryDrawMs = now;
+    if (batteryUpdated) {
+      Serial.printf("Batterie : %.3f V - %u %%\\n",
+                    battery.voltage, static_cast<unsigned>(battery.percent));
     }
   }
   delay(5);
