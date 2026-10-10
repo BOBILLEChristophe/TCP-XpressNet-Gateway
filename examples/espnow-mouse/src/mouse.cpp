@@ -109,17 +109,17 @@ static void sendCommand(String line) {
       line.length());
 
   if (err != ESP_OK) {
-    Serial.printf("Erreur esp_now_send : %d\\n", static_cast<int>(err));
+    Serial.printf("Erreur esp_now_send : %d\n", static_cast<int>(err));
     return;
   }
 
-  Serial.printf("Emission demandee : %s\\n", line.c_str());
+  Serial.printf("Emission demandee : %s\n", line.c_str());
   if (functionCommand) {
     // Etat local optimiste : ESP_OK indique la mise en file radio,
     // PAS la reception par la passerelle ni l'execution XpressNet.
     mouseState.functions[functionNumber] = functionEnabled;
     redrawDisplay();
-    Serial.printf("F%u : %s (emission demandee, sans acquittement)\\n",
+    Serial.printf("F%u : %s (emission demandee, sans acquittement)\n",
                   functionNumber, functionEnabled ? "ON" : "OFF");
   } else {
     updateLocalState(line);
