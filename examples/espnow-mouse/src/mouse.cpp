@@ -224,7 +224,7 @@ void loop() {
     redrawDisplay();
     lastBatteryDrawMs = now;
     if (batteryUpdated) {
-      Serial.printf("Batterie : %.3f V - %u %%\\n",
+      Serial.printf("Batterie : %.3f V - %u %%\n",
                     battery.voltage, static_cast<unsigned>(battery.percent));
     }
   }
