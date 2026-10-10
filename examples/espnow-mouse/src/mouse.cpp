@@ -40,20 +40,19 @@ static void updateLocalState(const String &command) {
   }
 }
 
-static bool handleLocalDisplayCommand(String line) {
-  line.trim();
-  // Les fonctions ne sont PAS encore envoyees a la passerelle.
-  if (line.length() >= 5 && line[0] == 'f' &&
-      line[1] >= '0' && line[1] <= '7' && line[2] == ' ' &&
-      (line.substring(3) == "on" || line.substring(3) == "off")) {
-    const uint8_t n = line[1] - '0';
-    mouseState.functions[n] = (line.substring(3) == "on");
-    redrawDisplay();
-    Serial.printf("F%u : %s (affichage local seulement)\n", n,
-                  mouseState.functions[n] ? "ON" : "OFF");
-    return true;
+// Les commandes f0 on/off ... f7 on/off sont analysees par sendCommand.
+// Elles doivent etre transmises a la passerelle avant la mise a jour OLED.
+static bool parseFunctionCommand(const String &line,
+                                 uint8_t &number, bool &enabled) {
+  if (line.length() < 5 || line[0] != 'f' ||
+      line[1] < '0' || line[1] > '7' || line[2] != ' ') {
+    return false;
   }
-  return false;
+  const String action = line.substring(3);
+  if (action != "on" && action != "off") return false;
+  number = static_cast<uint8_t>(line[1] - '0');
+  enabled = (action == "on");
+  return true;
 }
 
 
@@ -82,14 +81,22 @@ static bool gatewayConfigured() {
 static void sendCommand(String line) {
   line.trim();
   if (line.isEmpty()) return;
-  if (handleLocalDisplayCommand(line)) return;
 
-  if (line == "on") line = "<1>";
+  uint8_t functionNumber = 0;
+  bool functionEnabled = false;
+  const bool functionCommand =
+      parseFunctionCommand(line, functionNumber, functionEnabled);
+
+  if (functionCommand) {
+    // Protocole prive souris/passerelle, traite par DccExProtocol.cpp.
+    line = "<f " + String(mouseState.address) + " " +
+           String(functionNumber) + " " + String(functionEnabled ? 1 : 0) + ">";
+  } else if (line == "on") line = "<1>";
   else if (line == "off") line = "<0>";
   else if (line.startsWith("t ")) line = "<" + line + ">";
 
   if (!line.startsWith("<") || !line.endsWith(">") || line.length() > 64) {
-    Serial.println("Syntaxe : on | off | t 6400 10 1 | <t 6400 10 1>");
+    Serial.println("Syntaxe : f0 on | f0 off | on | off | t 6400 10 1");
     return;
   }
   if (!gatewayConfigured()) {
@@ -97,16 +104,28 @@ static void sendCommand(String line) {
     return;
   }
 
-  esp_err_t err = esp_now_send(GATEWAY_MAC,
-                              reinterpret_cast<const uint8_t *>(line.c_str()),
-                              line.length());
-  if (err == ESP_OK) {
-    Serial.printf("Emission demandee : %s\n", line.c_str());
-    updateLocalState(line);
+  const esp_err_t err = esp_now_send(
+      GATEWAY_MAC, reinterpret_cast<const uint8_t *>(line.c_str()),
+      line.length());
+
+  if (err != ESP_OK) {
+    Serial.printf("Erreur esp_now_send : %d\\n", static_cast<int>(err));
+    return;
+  }
+
+  Serial.printf("Emission demandee : %s\\n", line.c_str());
+  if (functionCommand) {
+    // Etat local optimiste : ESP_OK indique la mise en file radio,
+    // PAS la reception par la passerelle ni l'execution XpressNet.
+    mouseState.functions[functionNumber] = functionEnabled;
+    redrawDisplay();
+    Serial.printf("F%u : %s (emission demandee, sans acquittement)\\n",
+                  functionNumber, functionEnabled ? "ON" : "OFF");
   } else {
-    Serial.printf("Erreur esp_now_send : %d\n", static_cast<int>(err));
+    updateLocalState(line);
   }
 }
+
 
 void setup() {
   Serial.begin(115200);
@@ -136,7 +155,7 @@ void setup() {
   Serial.printf("Canal      : %u\n", ESPNOW_CHANNEL);
   Serial.println("Saisir : on | off | t 6400 10 1 | t 6400 0 1");
   Serial.println("Terminer chaque commande par Entree.");
-  Serial.println("Affichage local : f0 on | f0 off | ... | f7 on | f7 off");
+  Serial.println("Fonctions ESP-NOW : f0 on | f0 off | ... | f7 on | f7 off");
   Serial.println("Encodeur : rotation=vitesse, appui en marche=STOP, appui a zero=inversion");
   Serial.println("E-STOP : GPIO32, arret immediat de la locomotive");
 }
