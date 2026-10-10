@@ -304,16 +304,11 @@ FunctionState &findFunctionState(uint16_t address) {
   FunctionState *oldest = &functionStates[0];
   for (FunctionState &state : functionStates) {
     if (state.address == address) return state;
-    if (state.address == 0) {
-      state.address = address;
-      state.group0 = 0;
-      state.group1 = 0;
-      return state;
-    }
+    if (state.address == 0) return state;
     if (state.lastUse < oldest->lastUse) oldest = &state;
   }
-  // Cache limite : eviter la perte silencieuse des autres fonctions
-  // d'une locomotive si plus de 32 adresses ont ete utilisees.
+  // Cache limite a 32 adresses. L'etat de la moins recente
+  // sera reinitialise lors de sa reutilisation.
   return *oldest;
 }
 } // namespace
