@@ -432,46 +432,39 @@ size_t buildSpeedFrame(
 // F0 ... F4
 // ============================================================
 
-size_t buildFunctionFrame(
+// group=0 : F0..F4 (instruction 0x20, F0=bit4, F1..F4=bits0..3)
+// group=1 : F5..F8 (instruction 0x21, F5..F8=bits0..3)
+size_t buildFunctionGroupFrame(
   uint16_t locoAddress,
+  uint8_t group,
   uint8_t functions,
   uint8_t *frame) {
 
+  if (frame == nullptr || group > 1) return 0;
+  if ((group == 0 && (functions & 0xE0) != 0) ||
+      (group == 1 && (functions & 0xF0) != 0)) return 0;
+
   uint8_t AH;
   uint8_t AL;
+  encodeLocoAddress(locoAddress, AH, AL);
 
-
-  encodeLocoAddress(
-    locoAddress,
-    AH,
-    AL);
-
-
-  frame[0] =
-    0xE4;
-
-  frame[1] =
-    0x20;
-
-  frame[2] =
-    AH;
-
-  frame[3] =
-    AL;
-
-  frame[4] =
-    functions;
-
-
-  frame[5] =
-    calculateXor(
-      frame,
-      5);
-
+  frame[0] = 0xE4;
+  frame[1] = static_cast<uint8_t>(0x20 + group);
+  frame[2] = AH;
+  frame[3] = AL;
+  frame[4] = functions;
+  frame[5] = calculateXor(frame, 5);
 
   return 6;
 }
 
+// API existante preservee pour F0..F4.
+size_t buildFunctionFrame(
+  uint16_t locoAddress,
+  uint8_t functions,
+  uint8_t *frame) {
+  return buildFunctionGroupFrame(locoAddress, 0, functions, frame);
+}
 
 // ============================================================
 // AJOUT D'UNE TRAME PREPAREE A LA FILE (POINTEUR SEULEMENT)
