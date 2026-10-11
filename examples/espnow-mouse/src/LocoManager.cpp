@@ -8,13 +8,13 @@ namespace {
 // adresses reelles avant les essais multilo.
 constexpr uint16_t DCC_ADDRESSES[LocoManager::MAX_SLOTS] = {
     6400,  // Loco 1
-       0,  // Loco 2
+     130,  // Loco 2
        0,  // Loco 3
        0,  // Loco 4
        0,  // Loco 5
        0,  // Loco 6
        0,  // Loco 7
-       0   // Loco 8
+       0,  // Loco 8
 };
 } // namespace
 

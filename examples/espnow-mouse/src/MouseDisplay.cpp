@@ -19,7 +19,7 @@ constexpr uint8_t OLED_ADDR = 0x3C;
 namespace MouseDisplay {
 void begin() {
   Wire.begin(21, 22);
-  Wire.setClock(100000);
+  Wire.setClock(400000);
   delay(100);
 
   Wire.beginTransmission(OLED_ADDR);
@@ -29,6 +29,7 @@ void begin() {
     oledPresent = false;
     return;
   }
+  oled.setBusClock(400000);
   oled.begin();
   oledPresent = true;
   Serial.println("OLED SSD1306 128x64 initialise (SDA=21, SCL=22)");

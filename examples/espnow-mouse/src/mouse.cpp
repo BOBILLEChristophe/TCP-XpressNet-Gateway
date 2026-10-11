@@ -77,8 +77,22 @@ static void handleKey(uint8_t key) {
 
 
 
+// Ne pas bloquer la lecture des commandes pour chaque changement de vitesse.
+static bool displayDirty = true;
+static uint32_t lastDisplayRefreshMs = 0;
+constexpr uint32_t DISPLAY_REFRESH_MS = 100;  // au plus 10 images/seconde
+
 static void redrawDisplay() {
-  MouseDisplay::show(activeLoco(), MouseBattery::reading());
+  displayDirty = true;
+}
+
+static void refreshDisplayIfNeeded() {
+  const uint32_t now = millis();
+  if (displayDirty && now - lastDisplayRefreshMs >= DISPLAY_REFRESH_MS) {
+    displayDirty = false;
+    lastDisplayRefreshMs = now;
+    MouseDisplay::show(activeLoco(), MouseBattery::reading());
+  }
 }
 
 static void updateLocalState(const String &command) {
@@ -251,7 +265,7 @@ void setup() {
   Serial.println("Selection locomotive : # numero(1..8) #, * pour annuler");
   Serial.println("Encodeur : rotation=vitesse, appui en marche=STOP, appui a zero=inversion");
   Serial.println("E-STOP : GPIO32, arret immediat de la locomotive");
-  Serial.println("POWER : bouton GPIO16, LED GPIO17, retour LZV100 via ESP-NOW");
+  Serial.println("POWER : bouton GPIO35, LED GPIO5, retour LZV100 via ESP-NOW");
 }
 
 // Les commandes de l'encodeur restent en 0..100 sur la souris.
@@ -364,5 +378,6 @@ void loop() {
                     battery.voltage, static_cast<unsigned>(battery.percent));
     }
   }
-  delay(5);
+  refreshDisplayIfNeeded();
+  delay(1);
 }

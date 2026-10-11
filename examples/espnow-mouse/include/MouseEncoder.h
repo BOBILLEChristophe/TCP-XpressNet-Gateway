@@ -5,15 +5,14 @@
 namespace MouseEncoder {
 
 struct Event {
-  int8_t step = 0;    // +1 horaire, -1 antihoraire
+  int16_t step = 0;  // nombre de crans cumules depuis le dernier poll()
   bool pressed = false;
 };
 
 void begin();
 Event poll();
 
-// Progression 0..100 : 10 premiers crans jusqu'a 12,
-// 15 suivants +3, puis +5 (dernier palier limite a 100).
-uint8_t nextSpeed(uint8_t currentSpeed, int8_t step);
+// Progression 0..100, avec application de tous les crans accumules.
+uint8_t nextSpeed(uint8_t currentSpeed, int16_t steps);
 
 } // namespace MouseEncoder
