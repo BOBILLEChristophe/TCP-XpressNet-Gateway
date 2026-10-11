@@ -36,3 +36,8 @@ void processDccExByte(
 // ============================================================
 
 void printDccExStatus();
+
+// Fonction de retour vers le client TCP
+using DccExReplyCallback = void (*)(const char *);
+
+void setDccExReplyCallback(DccExReplyCallback callback);

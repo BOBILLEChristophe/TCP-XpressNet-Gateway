@@ -6,6 +6,17 @@
 #include <string.h>
 
 // ============================================================
+// CALLBACK POUR LES REPONSES TCP
+// ============================================================
+
+static DccExReplyCallback replyCallback = nullptr;
+
+void setDccExReplyCallback(DccExReplyCallback callback)
+{
+  replyCallback = callback;
+}
+
+// ============================================================
 // CONFIGURATION
 // ============================================================
 
@@ -154,7 +165,7 @@ static bool processThrottleCommand()
   // ----------------------------------------------------------
 
   unsigned int registerId = 0;
-  //char extra = '\0';
+  // char extra = '\0';
 
   // Essai avec registre (4 parametres)
   int parameterCount = sscanf(
@@ -401,6 +412,20 @@ static void processCommand()
 
   commandCount++;
 
+  // Identification demandee par Rocrail : <s>
+  if (strcmp(commandBuffer, "s") == 0)
+  {
+
+    if (replyCallback != nullptr)
+    {
+      replyCallback(
+          "<iDCCEX 1.0 / ESP32-S3 / LENZ-LZV100 / 1>");
+    }
+
+    Serial.println("DCC-EX <s> -> identification");
+    return;
+  }
+
   /// ----------------------------------------------------------
   // POWER ON
   // Accepte <1> et <1 MAIN>
@@ -621,3 +646,4 @@ void printDccExStatus()
       "Depassements      : %lu\n",
       (unsigned long)overflowCount);
 }
+

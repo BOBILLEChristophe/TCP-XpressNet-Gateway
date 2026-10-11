@@ -7,13 +7,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-
 // ============================================================
 // CONFIGURATION TCP
 // ============================================================
 
 static constexpr uint16_t TCP_PORT = 2560;
-
 
 // ============================================================
 // SERVEUR / CLIENT
@@ -23,6 +21,15 @@ static WiFiServer tcpServer(TCP_PORT);
 
 static WiFiClient tcpClient;
 
+static void sendDccExReply(const char *message)
+{
+
+  if (tcpClient && tcpClient.connected())
+  {
+    tcpClient.print(message);
+    Serial.printf("TCP TX : %s\n", message);
+  }
+}
 
 // ============================================================
 // ETAT RESEAU
@@ -30,7 +37,6 @@ static WiFiClient tcpClient;
 
 static volatile bool wifiConnected = false;
 static volatile bool clientConnected = false;
-
 
 // ============================================================
 // STATISTIQUES
@@ -40,12 +46,12 @@ static volatile uint32_t clientConnectionCount = 0;
 static volatile uint32_t clientDisconnectionCount = 0;
 static volatile uint32_t tcpByteCount = 0;
 
-
 // ============================================================
 // CONNEXION WIFI
 // ============================================================
 
-static void connectWifi() {
+static void connectWifi()
+{
 
   Serial.println();
   Serial.println("Connexion Wi-Fi...");
@@ -53,148 +59,143 @@ static void connectWifi() {
   WiFi.mode(WIFI_STA);
 
   WiFi.begin(
-    WIFI_SSID,
-    WIFI_PASSWORD);
+      WIFI_SSID,
+      WIFI_PASSWORD);
 
-
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED)
+  {
 
     Serial.print(".");
 
     delay(500);
   }
 
-
   wifiConnected = true;
 
-
   Serial.println();
   Serial.println();
 
   Serial.println(
-    "Wi-Fi connecte");
-
+      "Wi-Fi connecte");
 
   Serial.print(
-    "SSID       : ");
+      "SSID       : ");
 
   Serial.println(
-    WiFi.SSID());
-
+      WiFi.SSID());
 
   Serial.print(
-    "Adresse IP : ");
+      "Adresse IP : ");
 
   Serial.println(
-    WiFi.localIP());
-
-
-  Serial.print(
-    "RSSI       : ");
+      WiFi.localIP());
 
   Serial.print(
-    WiFi.RSSI());
+      "RSSI       : ");
+
+  Serial.print(
+      WiFi.RSSI());
 
   Serial.println(
-    " dBm");
-
+      " dBm");
 
   Serial.println();
 }
-
 
 // ============================================================
 // NETWORK TASK
 // ============================================================
 
 static void NetworkTask(
-  void *parameter) {
+    void *parameter)
+{
 
-  for (;;) {
+  for (;;)
+  {
 
     // --------------------------------------------------------
     // SURVEILLANCE WIFI
     // --------------------------------------------------------
 
-    if (WiFi.status() != WL_CONNECTED) {
+    if (WiFi.status() != WL_CONNECTED)
+    {
 
-      if (wifiConnected) {
+      if (wifiConnected)
+      {
 
         wifiConnected = false;
 
         Serial.println(
-          "Wi-Fi deconnecte");
+            "Wi-Fi deconnecte");
       }
 
-
       vTaskDelay(
-        pdMS_TO_TICKS(1000));
+          pdMS_TO_TICKS(1000));
 
       continue;
     }
 
-
     wifiConnected = true;
-
 
     // --------------------------------------------------------
     // NOUVEAU CLIENT TCP
     // --------------------------------------------------------
 
     if (!tcpClient ||
-        !tcpClient.connected()) {
+        !tcpClient.connected())
+    {
 
-      if (clientConnected) {
+      if (clientConnected)
+      {
 
         clientConnected = false;
 
         clientDisconnectionCount++;
 
         Serial.println(
-          "Client TCP deconnecte");
+            "Client TCP deconnecte");
       }
 
-
       WiFiClient newClient =
-        tcpServer.accept();
+          tcpServer.accept();
 
-
-      if (newClient) {
+      if (newClient)
+      {
 
         tcpClient =
-          newClient;
+            newClient;
 
         clientConnected =
-          true;
+            true;
 
         clientConnectionCount++;
 
-
         Serial.print(
-          "Client TCP connecte : ");
+            "Client TCP connecte : ");
 
         Serial.println(
-          tcpClient.remoteIP());
+            tcpClient.remoteIP());
       }
     }
-
 
     // --------------------------------------------------------
     // DONNEES RECUES
     // --------------------------------------------------------
 
     if (tcpClient &&
-        tcpClient.connected()) {
+        tcpClient.connected())
+    {
 
-      while (tcpClient.available()) {
+      while (tcpClient.available())
+      {
 
         int value =
-          tcpClient.read();
+            tcpClient.read();
 
-        if (value >= 0) {
+        if (value >= 0)
+        {
 
           tcpByteCount++;
-
 
           // --------------------------------------------------
           // PROTOCOLE DCC-EX
@@ -207,27 +208,26 @@ static void NetworkTask(
           // --------------------------------------------------
 
           processDccExByte(
-            static_cast<uint8_t>(value));
+              static_cast<uint8_t>(value));
         }
       }
     }
-
 
     // --------------------------------------------------------
     // TACHE BASSE PRIORITE
     // --------------------------------------------------------
 
     vTaskDelay(
-      pdMS_TO_TICKS(10));
+        pdMS_TO_TICKS(10));
   }
 }
-
 
 // ============================================================
 // INITIALISATION RESEAU
 // ============================================================
 
-void initNetwork() {
+void initNetwork()
+{
 
   // ----------------------------------------------------------
   // PROTOCOLE DCC-EX
@@ -235,13 +235,13 @@ void initNetwork() {
 
   initDccExProtocol();
 
+  setDccExReplyCallback(sendDccExReply);
 
   // ----------------------------------------------------------
   // WIFI
   // ----------------------------------------------------------
 
   connectWifi();
-
 
   // ----------------------------------------------------------
   // SERVEUR TCP
@@ -250,15 +250,13 @@ void initNetwork() {
   tcpServer.begin();
 
   tcpServer.setNoDelay(
-    true);
-
+      true);
 
   Serial.print(
-    "Serveur TCP : port ");
+      "Serveur TCP : port ");
 
   Serial.println(
-    TCP_PORT);
-
+      TCP_PORT);
 
   // ----------------------------------------------------------
   // NETWORK TASK
@@ -267,96 +265,88 @@ void initNetwork() {
   BaseType_t result;
 
   result =
-    xTaskCreate(
-      NetworkTask,
-      "NetworkTask",
-      4096,
-      nullptr,
-      1,
-      nullptr);
+      xTaskCreate(
+          NetworkTask,
+          "NetworkTask",
+          4096,
+          nullptr,
+          1,
+          nullptr);
 
-
-  if (result != pdPASS) {
+  if (result != pdPASS)
+  {
 
     Serial.println(
-      "ERREUR creation NetworkTask");
+        "ERREUR creation NetworkTask");
 
-    while (true) {
+    while (true)
+    {
       delay(1000);
     }
   }
 }
 
-
 // ============================================================
 // STATUS RESEAU
 // ============================================================
 
-void printNetworkStatus() {
+void printNetworkStatus()
+{
 
   Serial.println(
-    "--------------------------------------");
+      "--------------------------------------");
 
   Serial.println(
-    " RESEAU");
+      " RESEAU");
 
   Serial.println(
-    "--------------------------------------");
-
+      "--------------------------------------");
 
   Serial.printf(
-    "Wi-Fi            : %s\n",
-    wifiConnected
-      ? "connecte"
-      : "deconnecte");
+      "Wi-Fi            : %s\n",
+      wifiConnected
+          ? "connecte"
+          : "deconnecte");
 
-
-  if (WiFi.status() == WL_CONNECTED) {
+  if (WiFi.status() == WL_CONNECTED)
+  {
 
     Serial.printf(
-      "SSID             : %s\n",
-      WiFi.SSID().c_str());
-
+        "SSID             : %s\n",
+        WiFi.SSID().c_str());
 
     Serial.print(
-      "Adresse IP       : ");
+        "Adresse IP       : ");
 
     Serial.println(
-      WiFi.localIP());
-
+        WiFi.localIP());
 
     Serial.printf(
-      "RSSI             : %d dBm\n",
-      WiFi.RSSI());
+        "RSSI             : %d dBm\n",
+        WiFi.RSSI());
   }
 
+  Serial.printf(
+      "Port TCP         : %u\n",
+      TCP_PORT);
 
   Serial.printf(
-    "Port TCP         : %u\n",
-    TCP_PORT);
-
-
-  Serial.printf(
-    "Client TCP       : %s\n",
-    clientConnected
-      ? "connecte"
-      : "deconnecte");
-
+      "Client TCP       : %s\n",
+      clientConnected
+          ? "connecte"
+          : "deconnecte");
 
   Serial.printf(
-    "Connexions TCP   : %lu\n",
-    (unsigned long)clientConnectionCount);
-
-
-  Serial.printf(
-    "Deconnexions TCP : %lu\n",
-    (unsigned long)clientDisconnectionCount);
-
+      "Connexions TCP   : %lu\n",
+      (unsigned long)clientConnectionCount);
 
   Serial.printf(
-    "Octets TCP recus : %lu\n",
-    (unsigned long)tcpByteCount);
+      "Deconnexions TCP : %lu\n",
+      (unsigned long)clientDisconnectionCount);
 
+  Serial.printf(
+      "Octets TCP recus : %lu\n",
+      (unsigned long)tcpByteCount);
 
   // ----------------------------------------------------------
   // STATUS DCC-EX
