@@ -2,6 +2,7 @@
 
 #include "Config.h"
 #include "DccExProtocol.h"
+#include "XpressNet.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -30,6 +31,9 @@ volatile uint32_t receivedCount = 0;
 volatile uint32_t invalidCount = 0;
 volatile uint32_t unauthorizedCount = 0;
 volatile uint32_t droppedCount = 0;
+volatile uint32_t powerTxCount = 0;
+volatile uint32_t powerTxErrors = 0;
+constexpr uint32_t POWER_HEARTBEAT_MS = 1500;
 
 void printStaMac(const char *label) {
   uint8_t mac[6] = {};
@@ -84,21 +88,49 @@ void onEspNowReceive(const esp_now_recv_info_t *info,
 
 void EspNowTask(void *parameter) {
   ReceivedCommand command;
+  int lastSentPowerState = -1;
+  uint32_t lastPowerSentMs = 0;
+  uint32_t lastAttemptMs = 0;
+
   for (;;) {
-    if (xQueueReceive(rxQueue, &command, portMAX_DELAY) != pdTRUE)
-      continue;
+    // Une attente bornee laisse le temps de traiter les commandes recues,
+    // tout en surveillant les changements POWER de la LZV100.
+    if (xQueueReceive(rxQueue, &command, pdMS_TO_TICKS(50)) == pdTRUE) {
+      ++receivedCount;
+      Serial.printf("ESP-NOW RX %02X:%02X:%02X:%02X:%02X:%02X : %.*s\n",
+                    command.source[0], command.source[1], command.source[2],
+                    command.source[3], command.source[4], command.source[5],
+                    static_cast<int>(command.length), command.bytes);
 
-    ++receivedCount;
-    Serial.printf("ESP-NOW RX %02X:%02X:%02X:%02X:%02X:%02X : %.*s\n",
-                  command.source[0], command.source[1], command.source[2],
-                  command.source[3], command.source[4], command.source[5],
-                  static_cast<int>(command.length), command.bytes);
+      // En mode ESP-NOW, la tache TCP n'est pas lancee :
+      // le parseur DCC-EX n'a qu'un seul producteur.
+      for (size_t i = 0; i < command.length; ++i) {
+        processDccExByte(static_cast<uint8_t>(command.bytes[i]));
+      }
+    }
 
-    // Le parseur actuel est global : un seul producteur l'appelle.
-    // En mode ESP-NOW, NetworkTask (TCP) n'est jamais démarrée.
-    // Les commandes sont mises en file ENTIÈRES et traitées séquentiellement.
-    for (size_t i = 0; i < command.length; ++i) {
-      processDccExByte(static_cast<uint8_t>(command.bytes[i]));
+    if (!macIsConfigured(ESPNOW_ALLOWED_MOUSE_MAC)) continue;
+    const int powerState = getXpressNetPowerState();
+    if (powerState < 0) continue; // aucun etat LZV100 encore annonce
+
+    const uint32_t now = millis();
+    const bool changed = powerState != lastSentPowerState;
+    const bool heartbeat = now - lastPowerSentMs >= POWER_HEARTBEAT_MS;
+    if (!(changed || heartbeat) || now - lastAttemptMs < 200) continue;
+
+    lastAttemptMs = now;
+    const char *reply = powerState == 1 ? "<p1>" : "<p0>";
+    const esp_err_t err = esp_now_send(
+        ESPNOW_ALLOWED_MOUSE_MAC,
+        reinterpret_cast<const uint8_t *>(reply), strlen(reply));
+    if (err == ESP_OK) {
+      ++powerTxCount;
+      lastSentPowerState = powerState;
+      lastPowerSentMs = now;
+      if (changed) Serial.printf("ESP-NOW POWER -> souris : %s\n", reply);
+    } else {
+      ++powerTxErrors;
+      Serial.printf("ESP-NOW POWER : erreur d'emission %d\n", (int)err);
     }
   }
 }
@@ -129,13 +161,23 @@ void initEspNow() {
 
   ESP_ERROR_CHECK(esp_now_register_recv_cb(onEspNowReceive));
 
+  // ESP-NOW exige l'enregistrement du pair pour les emissions unicast.
+  if (macIsConfigured(ESPNOW_ALLOWED_MOUSE_MAC)) {
+    esp_now_peer_info_t peer = {};
+    memcpy(peer.peer_addr, ESPNOW_ALLOWED_MOUSE_MAC, 6);
+    peer.channel = ESPNOW_CHANNEL;
+    peer.ifidx = WIFI_IF_STA;
+    peer.encrypt = false; // Prototype de test non chiffre
+    ESP_ERROR_CHECK(esp_now_add_peer(&peer));
+  }
+
   if (xTaskCreate(EspNowTask, "EspNowTask", 4096, nullptr, 1, nullptr)
       != pdPASS) {
     Serial.println("ERREUR : creation EspNowTask");
     while (true) delay(1000);
   }
 
-  Serial.println("ESP-NOW pret (reception uniquement).");
+  Serial.println("ESP-NOW pret (commandes RX + retour POWER TX).");
 }
 
 void printEspNowStatus() {
@@ -150,6 +192,8 @@ void printEspNowStatus() {
   Serial.printf("Non autorises  : %lu\n", (unsigned long)unauthorizedCount);
   Serial.printf("Invalides      : %lu\n", (unsigned long)invalidCount);
   Serial.printf("FIFO saturee   : %lu\n", (unsigned long)droppedCount);
+  Serial.printf("POWER emis     : %lu\n", (unsigned long)powerTxCount);
+  Serial.printf("POWER erreurs  : %lu\n", (unsigned long)powerTxErrors);
   if (rxQueue != nullptr)
     Serial.printf("FIFO attente   : %u / %u\n",
                   (unsigned)uxQueueMessagesWaiting(rxQueue),
