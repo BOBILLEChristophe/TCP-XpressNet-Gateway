@@ -37,7 +37,8 @@ size_t buildFunctionFrame(
   uint8_t functions,
   uint8_t *frame);
 
-// group 0 : F0..F4 ; group 1 : F5..F8.
+// group 0 : F0..F4   ; group 1 : F5..F8
+// group 2 : F9..F12  ; group 3 : F13..F20 ; group 4 : F21..F28
 size_t buildFunctionGroupFrame(
   uint16_t locoAddress,
   uint8_t group,
