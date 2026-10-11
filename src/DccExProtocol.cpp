@@ -463,17 +463,72 @@ static void processCommand()
 
   commandCount++;
 
-  // Identification demandee par Rocrail : <s>
+  // Une requete <s> doit aussi fournir l'etat actuel des voies.
+  // JMRI interroge la centrale au demarrage et apres une commande POWER.
   if (strcmp(commandBuffer, "s") == 0)
   {
 
     if (replyCallback != nullptr)
     {
       replyCallback(
-          "<iDCCEX 1.0 / ESP32-S3 / LENZ-LZV100 / 1>");
+          "<iDCC-EX V-4.0.0 / ESP32-S3 / LENZ-LZV100 G-XPNET-GW>");
+
+      // Ne jamais annoncer un etat non confirme par la LZV100.
+      const int powerState = getXpressNetPowerState();
+      if (powerState == 0)
+      {
+        replyCallback("<p0>");
+      }
+      else if (powerState == 1)
+      {
+        replyCallback("<p1>");
+      }
     }
 
-    Serial.println("DCC-EX <s> -> identification");
+    Serial.println("DCC-EX <s> -> identification et etat alimentation");
+    return;
+  }
+
+  // Inventaire DCC-EX de la passerelle : aucune aiguille,
+  // aucun capteur et aucune sortie virtuelle DCC-EX declaree.
+  // Repondre evite de bloquer la file d'envoi de JMRI (timeout 5 s).
+  if (strcmp(commandBuffer, "#") == 0)
+  {
+    // Nombre prudent d'adresses memorisees dans le cache des fonctions.
+    if (replyCallback != nullptr)
+      replyCallback("<# 32>");
+    Serial.println("DCC-EX <#> -> 32 slots annonces");
+    return;
+  }
+
+  if (strcmp(commandBuffer, "J T") == 0 ||
+      strcmp(commandBuffer, "JT") == 0)
+  {
+    if (replyCallback != nullptr)
+      replyCallback("<jT>"); // liste d'identifiants d'aiguilles vide
+    Serial.println("DCC-EX <JT> -> liste vide");
+    return;
+  }
+
+  if (strcmp(commandBuffer, "T") == 0 ||
+      strcmp(commandBuffer, "Z") == 0 ||
+      strcmp(commandBuffer, "S") == 0)
+  {
+    // Reponse DCC++ d'inventaire vide (pas d'objets declares).
+    if (replyCallback != nullptr)
+      replyCallback("<X>");
+    Serial.printf("DCC-EX <%s> -> inventaire vide (<X>)\n", commandBuffer);
+    return;
+  }
+
+  if (strcmp(commandBuffer, "=") == 0 ||
+      strcmp(commandBuffer, "J G") == 0 ||
+      strcmp(commandBuffer, "JG") == 0)
+  {
+    // TrackManager DCC-EX et mesures de courant non disponibles.
+    if (replyCallback != nullptr)
+      replyCallback("<X>");
+    Serial.printf("DCC-EX <%s> -> non pris en charge (<X>)\n", commandBuffer);
     return;
   }
 
@@ -559,6 +614,11 @@ static void processCommand()
           "DCC-EX <c> : mesure de courant indisponible");
       warningDisplayed = true;
     }
+
+    // <X> signale explicitement que la mesure n'est pas disponible.
+    // Ne pas bloquer JMRI et ne jamais inventer une valeur de courant.
+    if (replyCallback != nullptr)
+      replyCallback("<X>");
 
     return;
   }
