@@ -490,6 +490,29 @@ static void processCommand()
   }
 
   // ----------------------------------------------------------
+  // COURANT DE VOIE : <c>
+  //
+  // La passerelle ne dispose pas actuellement
+  // d'une mesure de courant.
+  // Commande reconnue, mais aucune valeur inventee.
+  // ----------------------------------------------------------
+
+  if (strcmp(commandBuffer, "c") == 0)
+  {
+
+    static bool warningDisplayed = false;
+
+    if (!warningDisplayed)
+    {
+      Serial.println(
+          "DCC-EX <c> : mesure de courant indisponible");
+      warningDisplayed = true;
+    }
+
+    return;
+  }
+
+  // ----------------------------------------------------------
   // COMMANDE NON IMPLEMENTEE
   // ----------------------------------------------------------
 
@@ -646,4 +669,3 @@ void printDccExStatus()
       "Depassements      : %lu\n",
       (unsigned long)overflowCount);
 }
-
