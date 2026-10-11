@@ -1,6 +1,7 @@
 #include "TcpNetwork.h"
 #include "Secrets.h"
 #include "DccExProtocol.h"
+#include "XpressNet.h"
 
 #include <WiFi.h>
 
@@ -110,6 +111,10 @@ static void NetworkTask(
     void *parameter)
 {
 
+  // Etat deja transmis au client TCP courant. On repart de INCONNU
+  // pour chaque nouvelle connexion afin de synchroniser Rocrail.
+  int lastSentPowerState = -1;
+
   for (;;)
   {
 
@@ -170,6 +175,10 @@ static void NetworkTask(
 
         clientConnectionCount++;
 
+        // Envoyer l'etat reel au nouveau client, meme si
+        // l'alimentation n'a pas change depuis sa deconnexion.
+        lastSentPowerState = -1;
+
         Serial.print(
             "Client TCP connecte : ");
 
@@ -210,6 +219,21 @@ static void NetworkTask(
           processDccExByte(
               static_cast<uint8_t>(value));
         }
+      }
+
+      // ------------------------------------------------------
+      // RETOUR D'ETAT LENZ VERS ROCRAIL (DCC-EX)
+      // ------------------------------------------------------
+      // Lecture atomique, aucun acces TCP depuis XpressNetTask.
+      // Les broadcasts XpressNet peuvent etre repetes : on ne
+      // transmet que le changement d'etat ou l'etat initial.
+
+      const int powerState = getXpressNetPowerState();
+
+      if (powerState >= 0 && powerState != lastSentPowerState)
+      {
+        sendDccExReply(powerState == 1 ? "<p1>" : "<p0>");
+        lastSentPowerState = powerState;
       }
     }
 

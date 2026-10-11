@@ -59,3 +59,7 @@ bool queueXpressNetMessage(
 // ============================================================
 
 void printXpressNetStatus();
+
+// Etat annonce par la centrale : -1 = inconnu, 0 = OFF, 1 = ON.
+// Lecture atomique : aucune operation TCP dans la tache XpressNet.
+int getXpressNetPowerState();

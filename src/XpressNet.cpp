@@ -1051,3 +1051,12 @@ void printXpressNetStatus()
       state < 0 ? "INCONNU" :
       state == 0 ? "OFF" : "ON");
 }
+
+// ============================================================
+// ETAT D'ALIMENTATION LENZ (LECTURE NON BLOQUANTE)
+// ============================================================
+
+int getXpressNetPowerState()
+{
+  return announcedPowerState.load(std::memory_order_relaxed);
+}
