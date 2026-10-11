@@ -9,16 +9,19 @@
 #include <esp_wifi.h>
 #include <esp_mac.h>
 #include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "MouseState.h"
 #include "MouseDisplay.h"
 #include "MouseBattery.h"
+#include "MousePower.h"
 #include "MouseEncoder.h"
 #include "MouseEmergencyStop.h"
 #include "MouseKeypad.h"
 #include "LocoManager.h"
 
 static void redrawDisplay();
-static void sendCommand(String line);
+static bool sendCommand(String line);
 static LocoManager locoManager;
 static bool encoderThrottleCommand = false;
 static bool selectingLoco = false;
@@ -118,7 +121,10 @@ static bool parseFunctionCommand(const String &line,
 constexpr uint8_t ESPNOW_CHANNEL = 6;
 
 // Remplacer par la MAC STA affichée par la passerelle.
-constexpr uint8_t GATEWAY_MAC[6] = {0, 0, 0, 0, 0, 0};
+constexpr uint8_t GATEWAY_MAC[6] = {
+    0x30, 0x30, 0xF9, 0x72, 0x82, 0x18
+};
+
 
 static void printStaMac(const char *label) {
   uint8_t mac[6] = {};
@@ -137,9 +143,26 @@ static bool gatewayConfigured() {
   return false;
 }
 
-static void sendCommand(String line) {
+// Le callback radio ne fait que valider et deposer l'etat dans une FIFO.
+// L'OLED et les GPIO sont traites uniquement dans loop().
+struct PowerReport { uint8_t on; };
+static QueueHandle_t powerRxQueue = nullptr;
+
+static void onMouseEspNowReceive(const esp_now_recv_info_t *info,
+                                 const uint8_t *data, int length) {
+  if (!info || !info->src_addr || !data || !powerRxQueue ||
+      !gatewayConfigured() || memcmp(info->src_addr, GATEWAY_MAC, 6) != 0)
+    return;
+  PowerReport report;
+  if (length == 4 && memcmp(data, "<p0>", 4) == 0) report.on = 0;
+  else if (length == 4 && memcmp(data, "<p1>", 4) == 0) report.on = 1;
+  else return;
+  xQueueOverwrite(powerRxQueue, &report);
+}
+
+static bool sendCommand(String line) {
   line.trim();
-  if (line.isEmpty()) return;
+  if (line.isEmpty()) return false;
 
   uint8_t functionNumber = 0;
   bool functionEnabled = false;
@@ -156,11 +179,11 @@ static void sendCommand(String line) {
 
   if (!line.startsWith("<") || !line.endsWith(">") || line.length() > 64) {
     Serial.println("Syntaxe : f0 on | f0 off | on | off | t 6400 10 1");
-    return;
+    return false;
   }
   if (!gatewayConfigured()) {
     Serial.println("Configurer GATEWAY_MAC dans mouse.cpp");
-    return;
+    return false;
   }
 
   const esp_err_t err = esp_now_send(
@@ -169,7 +192,7 @@ static void sendCommand(String line) {
 
   if (err != ESP_OK) {
     Serial.printf("Erreur esp_now_send : %d\n", static_cast<int>(err));
-    return;
+    return false;
   }
 
   Serial.printf("Emission demandee : %s\n", line.c_str());
@@ -183,6 +206,7 @@ static void sendCommand(String line) {
   } else {
     updateLocalState(line);
   }
+  return true;
 }
 
 
@@ -195,11 +219,18 @@ void setup() {
   MouseKeypad::begin();
   MouseDisplay::begin();
   MouseBattery::begin();
+  MousePower::begin();
   redrawDisplay();
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   ESP_ERROR_CHECK(esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE));
   ESP_ERROR_CHECK(esp_now_init());
+  powerRxQueue = xQueueCreate(1, sizeof(PowerReport));
+  if (!powerRxQueue) {
+    Serial.println("ERREUR : FIFO retour POWER non creee");
+    while (true) delay(1000);
+  }
+  ESP_ERROR_CHECK(esp_now_register_recv_cb(onMouseEspNowReceive));
 
   esp_now_peer_info_t peer = {};
   memcpy(peer.peer_addr, GATEWAY_MAC, 6);
@@ -220,6 +251,7 @@ void setup() {
   Serial.println("Selection locomotive : # numero(1..8) #, * pour annuler");
   Serial.println("Encodeur : rotation=vitesse, appui en marche=STOP, appui a zero=inversion");
   Serial.println("E-STOP : GPIO32, arret immediat de la locomotive");
+  Serial.println("POWER : bouton GPIO16, LED GPIO17, retour LZV100 via ESP-NOW");
 }
 
 // Les commandes de l'encodeur restent en 0..100 sur la souris.
@@ -288,6 +320,24 @@ void loop() {
   } else if (!MouseEmergencyStop::isHeld() && !selectingLoco) {
     handleEncoderEvent(encoderEvent);
   }
+  // Les retours ESP-NOW sont traites dans la boucle applicative,
+  // jamais dans le callback Wi-Fi.
+  PowerReport report;
+  while (powerRxQueue != nullptr &&
+         xQueueReceive(powerRxQueue, &report, 0) == pdTRUE) {
+    MousePower::confirm(report.on != 0);
+  }
+
+  const bool powerPressed = MousePower::poll();
+  // Priorite a l'arret d'urgence locomotive deja existant.
+  if (powerPressed && !MouseEmergencyStop::isHeld()) {
+    const bool requestedOn = MousePower::desiredPowerOn();
+    if (sendCommand(requestedOn ? "<1>" : "<0>")) {
+      MousePower::markRequested();
+    }
+  }
+  if (MousePower::takeDisplayChanged()) redrawDisplay();
+
   static String line;
   while (Serial.available()) {
     const char c = static_cast<char>(Serial.read());

@@ -1,4 +1,5 @@
 #include "MouseDisplay.h"
+#include "MousePower.h"
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -76,6 +77,7 @@ void show(const MouseState &state, const BatteryReading &battery) {
   oled.drawStr(82, 35, state.forward ? ">>" : "<<");
 
   oled.setFont(u8g2_font_5x7_tf);
+  oled.drawStr(82, 46, MousePower::label());
   for (uint8_t i = 0; i < 8; ++i) {
     const int x = i * 16;
     if (state.functions[i]) {
