@@ -4,7 +4,7 @@ Ce dossier contient un **projet PlatformIO distinct** de la passerelle. Ouvrir d
 
 ## Étapes
 
-1. Dans la passerelle, choisir `CommunicationMode::ESP_NOW` dans `include/Config.h`. Le canal par défaut est 6.
+1. Dans la passerelle, choisir `CommunicationMode::ESP_NOW` dans `src/Config.h`. Le canal par défaut est 6.
 2. Téléverser la passerelle. Son moniteur série affiche sa **MAC Wi-Fi STA**.
 3. Reporter cette MAC dans `GATEWAY_MAC` de `src/mouse.cpp` ; téléverser la souris.
 4. Le moniteur série de la souris affiche sa **MAC Wi-Fi STA**.

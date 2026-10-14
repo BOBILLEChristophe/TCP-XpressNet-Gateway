@@ -11,7 +11,7 @@ Les sept fichiers `src/` proviennent de la version transmise après essais concl
 - ESP32-S3, transceiver RS-485 SP3485 et Lenz LZV100.
 - UART1 RX : GPIO18 ; RMT TX : GPIO17 ; commande RTS/DE : GPIO16.
 - XpressNet : 62 500 bauds, UART 8O1, adresse 21, interrogation normale `0x55`, demande ACK `0x95`.
-- Configuration : `include/Config.h`. Le projet PlatformIO fourni cible `esp32-s3-devkitc-1` par défaut.
+- Configuration : `src/Config.h`. Le projet PlatformIO fourni cible `esp32-s3-devkitc-1` par défaut.
 
 ## Fonctionnement
 
@@ -44,8 +44,8 @@ Le protocole DCC-EX n'est **pas** entièrement implémenté. Le code TCP actuel 
 ## Installation PlatformIO
 
 1. Ouvrir le dépôt dans VS Code / PlatformIO.
-2. Copier `include/Secrets.example.h` vers `include/Secrets.h`, puis y saisir les identifiants Wi-Fi.
-3. Vérifier que `include/Secrets.h` reste ignoré par Git et ne jamais publier de mots de passe.
+2. Copier `src/Secrets.example.h` vers `src/Secrets.h`, puis y saisir les identifiants Wi-Fi.
+3. Vérifier que `src/Secrets.h` reste ignoré par Git et ne jamais publier de mots de passe.
 4. Compiler l'environnement `esp32-s3` et téléverser sur la carte.
 5. Vérifier le POWER OFF automatique, puis les commandes ON/OFF, vitesse et fonctions par USB et TCP.
 
@@ -57,8 +57,8 @@ Le protocole DCC-EX n'est **pas** entièrement implémenté. Le code TCP actuel 
 - `src/XpressNet.cpp/.h` : réception UART, RMT, FIFO, trames.
 - `src/TcpNetwork.cpp/.h` : Wi-Fi et serveur TCP.
 - `src/DccExProtocol.cpp/.h` : décodage des commandes DCC-EX.
-- `include/Config.h` : broches et constantes.
-- `include/Secrets.example.h` : modèle sans identifiants réels.
+- `src/Config.h` : broches et constantes.
+- `src/Secrets.example.h` : modèle sans identifiants réels.
 
 ## Limites
 
