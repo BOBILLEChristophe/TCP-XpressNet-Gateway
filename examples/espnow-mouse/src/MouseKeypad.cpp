@@ -1,20 +1,20 @@
 #include "MouseKeypad.h"
 
 namespace {
-// GPIO libres sur la souris ESP32 classique.
-// Ne pas utiliser les broches de l'OLED, de l'encodeur,
-// de l'arret d'urgence ou de la mesure batterie.
-constexpr uint8_t ROW_PINS[4] = {13, 14, 16, 17};
+// Brochage valide sur la souris ESP32 classique : ne pas utiliser GPIO16/17.
+constexpr uint8_t ROW_PINS[4] = {13, 14, 4, 33};
 constexpr uint8_t COL_PINS[3] = {18, 19, 23};
 constexpr uint32_t DEBOUNCE_MS = 30;
 constexpr int8_t NO_KEY = -1;
+
+// Index row*3+col : 0=1, 1=2, ..., 9=*, 10=0, 11=#.
+constexpr char KEY_LABELS[13] = "123456789*0#";
 
 int8_t lastRawKey = NO_KEY;
 int8_t stableKey = NO_KEY;
 uint32_t lastChangeMs = 0;
 
-// Une seule ligne a LOW a la fois. Les autres restent en haute impedance.
-// Ainsi deux touches ne relient jamais deux sorties opposees.
+// Une seule ligne a LOW ; les autres restent en haute impedance.
 int8_t scanKey() {
   int8_t found = NO_KEY;
   bool multiple = false;
@@ -32,10 +32,8 @@ int8_t scanKey() {
       }
     }
 
-    pinMode(ROW_PINS[row], INPUT); // haute impedance
+    pinMode(ROW_PINS[row], INPUT);
   }
-
-  // Evite les bascules ambigues en cas de touches multiples / ghosting.
   return multiple ? NO_KEY : found;
 }
 } // namespace
@@ -46,14 +44,14 @@ void begin() {
   for (uint8_t pin : COL_PINS) pinMode(pin, INPUT_PULLUP);
 
   lastRawKey = scanKey();
-  stableKey = lastRawKey; // aucun appui artificiel au demarrage
+  stableKey = lastRawKey;
   lastChangeMs = millis();
 
-  Serial.println("Clavier 3x4 : lignes 13,14,16,17 / colonnes 18,19,23");
-  Serial.println("Touches 1..8 : F0..F7 (un appui = bascule ON/OFF)");
+  Serial.println("Clavier 3x4 : lignes 13,14,4,33 / colonnes 18,19,23");
+  Serial.println("Touches 0..9 : F0..F9 ; #1#..#9# / #0# : selection locomotive");
 }
 
-int8_t poll() {
+char poll() {
   const int8_t rawKey = scanKey();
   const uint32_t now = millis();
 
@@ -64,9 +62,10 @@ int8_t poll() {
 
   if (rawKey != stableKey && now - lastChangeMs >= DEBOUNCE_MS) {
     stableKey = rawKey;
-    // Seul le front d'appui est pris en compte ; relacher n'envoie rien.
-    if (stableKey >= 0 && stableKey < 8) return stableKey;
+    if (stableKey >= 0 && stableKey < 12) {
+      return KEY_LABELS[stableKey];
+    }
   }
-  return NO_KEY;
+  return '\0';
 }
 } // namespace MouseKeypad

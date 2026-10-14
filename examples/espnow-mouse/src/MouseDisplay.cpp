@@ -5,15 +5,11 @@
 #include <U8g2lib.h>
 
 namespace {
-// OLED valide 0,96 pouce : SSD1306 128x64 I2C.
-// Pour le futur 1,3 pouce SH1106, remplacer uniquement le constructeur.
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(
+U8G2_SH1106_128X64_NONAME_F_HW_I2C oled(
     U8G2_R0, U8X8_PIN_NONE, 22, 21);
 bool oledPresent = false;
-
 constexpr uint8_t OLED_ADDR = 0x3C;
-
-}  // namespace
+} // namespace
 
 namespace MouseDisplay {
 void begin() {
@@ -50,8 +46,7 @@ void show(const MouseState &state, const BatteryReading &battery) {
   snprintf(charge, sizeof(charge), "%u%%",
            static_cast<unsigned>(battery.percent));
 
-  // Sous 30 %, le pourcentage clignote en inverse video.
-  const bool warningOn = battery.low && ((millis() / 500) % 2 == 0);
+  const bool warningOn = battery.low && ((millis() / 1000) % 2 == 0);
   if (warningOn) {
     oled.drawBox(88, 0, 26, 11);
     oled.setDrawColor(0);
@@ -75,21 +70,22 @@ void show(const MouseState &state, const BatteryReading &battery) {
   oled.setFont(u8g2_font_9x15B_tf);
   oled.drawStr(82, 35, state.forward ? ">>" : "<<");
 
+  // Dix cases de 12 pixels : F0..F9 sur 128 pixels.
   oled.setFont(u8g2_font_5x7_tf);
-  for (uint8_t i = 0; i < 8; ++i) {
-    const int x = i * 16;
+  for (uint8_t i = 0; i < 10; ++i) {
+    const int x = i * 12;
     if (state.functions[i]) {
-      oled.drawBox(x, 51, 15, 12);
+      oled.drawBox(x, 51, 11, 12);
       oled.setDrawColor(0);
     } else {
-      oled.drawFrame(x, 51, 15, 12);
+      oled.drawFrame(x, 51, 11, 12);
       oled.setDrawColor(1);
     }
     char label[4];
     snprintf(label, sizeof(label), "F%u", i);
-    oled.drawStr(x + 2, 60, label);
+    oled.drawStr(x + 1, 60, label);
     oled.setDrawColor(1);
   }
   oled.sendBuffer();
 }
-}  // namespace MouseDisplay
+} // namespace MouseDisplay

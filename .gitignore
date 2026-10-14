@@ -10,3 +10,11 @@ Secrets.h
 # Fichiers temporaires
 *.log
 __MACOSX/
+
+# Sauvegardes locales
+/backup_avant_*/
+*.bak
+
+# Identifiants Wi-Fi prives
+Secrets.h
+**/Secrets.h
