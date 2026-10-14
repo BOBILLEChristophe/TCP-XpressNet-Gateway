@@ -429,27 +429,34 @@ size_t buildSpeedFrame(
 
 
 // ============================================================
-// F0 ... F4
+// F0 ... F28 : 5 groupes de fonctions XpressNet
 // ============================================================
 
-// group=0 : F0..F4 (instruction 0x20, F0=bit4, F1..F4=bits0..3)
-// group=1 : F5..F8 (instruction 0x21, F5..F8=bits0..3)
+// Groupe 0 : F0..F4   -> 0x20 (F0=bit4, F1..F4=bits0..3)
+// Groupe 1 : F5..F8   -> 0x21 (bits0..3)
+// Groupe 2 : F9..F12  -> 0x22 (bits0..3)
+// Groupe 3 : F13..F20 -> 0x23 (bits0..7)
+// Groupe 4 : F21..F28 -> 0x28 (bits0..7)
 size_t buildFunctionGroupFrame(
   uint16_t locoAddress,
   uint8_t group,
   uint8_t functions,
   uint8_t *frame) {
 
-  if (frame == nullptr || group > 1) return 0;
+  static constexpr uint8_t GROUP_INSTRUCTIONS[] = {
+      0x20, 0x21, 0x22, 0x23, 0x28
+  };
+
+  if (frame == nullptr || group >= sizeof(GROUP_INSTRUCTIONS)) return 0;
   if ((group == 0 && (functions & 0xE0) != 0) ||
-      (group == 1 && (functions & 0xF0) != 0)) return 0;
+      ((group == 1 || group == 2) && (functions & 0xF0) != 0)) return 0;
 
   uint8_t AH;
   uint8_t AL;
   encodeLocoAddress(locoAddress, AH, AL);
 
   frame[0] = 0xE4;
-  frame[1] = static_cast<uint8_t>(0x20 + group);
+  frame[1] = GROUP_INSTRUCTIONS[group];
   frame[2] = AH;
   frame[3] = AL;
   frame[4] = functions;
@@ -458,7 +465,7 @@ size_t buildFunctionGroupFrame(
   return 6;
 }
 
-// API existante preservee pour F0..F4.
+// API historique preservee pour F0..F4.
 size_t buildFunctionFrame(
   uint16_t locoAddress,
   uint8_t functions,
